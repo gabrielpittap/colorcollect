@@ -58,23 +58,28 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const gridAreaHeight = height * 0.72;
       const gridAreaWidth = width - 32;
 
-      const cellSize = Math.min(
-        Math.floor(gridAreaWidth / gridW),
-        Math.floor(gridAreaHeight / gridH),
-        44 // tamanho máximo de célula
+      // Escala dinâmica de célula (até 56px no desktop, adaptada ao espaço disponível)
+      const maxCellSize = width > 550 ? 56 : 42;
+      const cellSize = Math.max(
+        16,
+        Math.min(
+          Math.floor(gridAreaWidth / gridW),
+          Math.floor(gridAreaHeight / gridH),
+          maxCellSize
+        )
       );
 
       const boardPixelW = gridW * cellSize;
       const boardPixelH = gridH * cellSize;
       const offsetX = Math.floor((width - boardPixelW) / 2);
-      const offsetY = Math.floor((gridAreaHeight - boardPixelH) / 2) + 16;
+      const offsetY = Math.max(8, Math.floor((gridAreaHeight - boardPixelH) / 2) + 8);
 
       // Posição vertical das 5 docas na base do Canvas
-      const dockY = height - 36;
-      const dockAreaW = width - 40;
+      const dockY = height - Math.min(36, Math.max(22, height * 0.08));
+      const dockAreaW = width - 36;
       const dockSpacing = dockAreaW / 5;
       const dockPositions = Array.from({ length: 5 }, (_, i) => ({
-        x: 20 + dockSpacing * i + dockSpacing / 2,
+        x: 18 + dockSpacing * i + dockSpacing / 2,
         y: dockY,
       }));
 
@@ -117,11 +122,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   }, [engine, palette]);
 
   return (
-    <div className="relative w-full h-[400px] sm:h-[460px] md:h-[500px] rounded-3xl overflow-hidden shadow-2xl border-2 border-slate-800/80 bg-slate-950">
+    <div className="relative w-full h-full min-h-[160px] flex-1 rounded-2xl md:rounded-3xl overflow-hidden shadow-2xl border-2 border-slate-800/80 bg-slate-950 flex items-center justify-center">
       <canvas
         ref={canvasRef}
         className="w-full h-full block touch-none"
-        style={{ width: '100%', height: '100%' }}
       />
     </div>
   );
@@ -251,8 +255,12 @@ function drawDocks(
     ctx.strokeStyle = isOccupied && colorDef ? colorDef.hex : '#33415588';
     ctx.lineWidth = isOccupied ? 2 : 1.5;
 
+    const spacing = docks.length > 1 ? docks[1].x - docks[0].x : 44;
+    const rx = Math.min(22, Math.max(12, spacing * 0.38));
+    const ry = Math.min(10, Math.max(6, rx * 0.46));
+
     ctx.beginPath();
-    ctx.ellipse(dock.x, dock.y, 22, 10, 0, 0, Math.PI * 2);
+    ctx.ellipse(dock.x, dock.y, rx, ry, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
 
