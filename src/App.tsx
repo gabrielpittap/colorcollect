@@ -4,7 +4,6 @@ import { ContinuousGameEngine, GameStatus } from './core/ContinuousGameEngine';
 import { StorageManager } from './core/StorageManager';
 import { SoundManager } from './core/SoundManager';
 import { GameCanvas } from './components/GameCanvas';
-import { BufferView } from './components/BufferView';
 import { SupplyView } from './components/SupplyView';
 import { GameHeader } from './components/GameHeader';
 import { LevelSelectModal } from './components/LevelSelectModal';
@@ -136,7 +135,7 @@ export default function App() {
     gameStatus === 'PLAYING' && bufferSlots.some((s) => s.box === null);
 
   return (
-    <div className="h-screen h-[100dvh] w-full max-w-[100vw] bg-slate-950 text-slate-100 flex flex-col font-sans select-none antialiased overflow-y-auto md:overflow-hidden">
+    <div className="h-screen h-[100dvh] w-full max-w-[100vw] bg-slate-950 text-slate-100 flex flex-col font-sans select-none antialiased overflow-hidden">
       {/* Barra de Topo do Jogo */}
       <GameHeader
         currentLevel={currentLevel}
@@ -148,38 +147,25 @@ export default function App() {
       />
 
       {/* Conteúdo Principal do Jogo:
-          - No Computador (md+): divide a tela ao meio. Fila de cores na esquerda e campo/robôs na direita.
-          - No Celular: vertical tela cheia sem rolagem (campo/robôs em cima, fila de cores embaixo).
-          - Sem rolagem em proporções padrão 16:9 ou 9:16.
+          - Desktop (md+): Depósito compacto à esquerda e campo/robôs maximizado à direita.
+          - Celular: Campo/robôs maximizado em cima (flex-1) e depósito de caixas embaixo (shrink-0).
+          - Zero desperdício de espaço e sem rolagem indesejada (100dvh).
       */}
-      <main className="flex-1 min-h-0 w-full max-w-7xl mx-auto p-2 sm:p-3 md:p-4 lg:p-6 flex flex-col md:flex-row items-stretch justify-center gap-2 sm:gap-3 md:gap-6 lg:gap-8 overflow-hidden">
-        {/* Painel Esquerdo (Desktop) / Painel Inferior (Mobile): Fila de Cores */}
-        <section className="order-2 md:order-1 w-full md:w-1/2 flex flex-col justify-center items-center shrink-0 md:shrink min-h-0">
-          <div className="w-full max-w-md lg:max-w-lg flex flex-col gap-2 sm:gap-3 md:gap-4">
-            {/* 1. As 5 Docas da Fila de Espera */}
-            <div className="w-full shrink-0">
-              <BufferView
-                slots={bufferSlots}
-                palette={currentLevel.palette}
-                isDeadlocked={gameStatus === 'LOST'}
-                robots={engine.robots}
-              />
-            </div>
-
-            {/* 2. Depósito de Suprimentos (Deck de Caixas Táteis) */}
-            <div className="w-full shrink-0">
-              <SupplyView
-                columns={supplyColumns}
-                palette={currentLevel.palette}
-                onPullBox={handlePullBox}
-                canPull={canPull}
-              />
-            </div>
+      <main className="flex-1 min-h-0 w-full max-w-7xl mx-auto p-1.5 sm:p-2 md:p-4 lg:p-6 flex flex-col md:flex-row items-stretch justify-center gap-2 sm:gap-3 md:gap-6 overflow-hidden">
+        {/* Painel Esquerdo (Desktop) / Painel Inferior (Mobile): Depósito de Caixas */}
+        <section className="order-2 md:order-1 w-full md:w-80 lg:w-96 flex flex-col justify-center items-center shrink-0 min-h-0">
+          <div className="w-full max-w-md flex flex-col">
+            <SupplyView
+              columns={supplyColumns}
+              palette={currentLevel.palette}
+              onPullBox={handlePullBox}
+              canPull={canPull}
+            />
           </div>
         </section>
 
-        {/* Painel Direito (Desktop) / Painel Superior (Mobile): Campo e Robôs */}
-        <section className="order-1 md:order-2 w-full md:w-1/2 flex-1 min-h-0 flex flex-col justify-center items-center">
+        {/* Painel Direito (Desktop) / Painel Superior (Mobile): Campo e Robôs com Doca Integrada */}
+        <section className="order-1 md:order-2 w-full md:flex-1 flex-1 min-h-0 flex flex-col justify-center items-center">
           <GameCanvas
             engine={engine}
             grid={grid}

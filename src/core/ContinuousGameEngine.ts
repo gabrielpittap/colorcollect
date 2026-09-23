@@ -96,6 +96,9 @@ export class ContinuousGameEngine {
     }));
   }
 
+  public canvasWidth: number = 400;
+  public canvasHeight: number = 600;
+
   /**
    * Atualiza as coordenadas visuais das docas, portas e do grid calculadas pelo Canvas
    */
@@ -111,6 +114,8 @@ export class ContinuousGameEngine {
     this.gridBounds.cellPixelSize = cellPixelSize;
     this.gridBounds.offsetX = offsetX;
     this.gridBounds.offsetY = offsetY;
+    this.canvasWidth = canvasWidth;
+    this.canvasHeight = canvasHeight;
 
     this.rightDoor.x = canvasWidth - 14;
     this.rightDoor.y = offsetY + (this.level.height * cellPixelSize) / 2;
@@ -120,9 +125,17 @@ export class ContinuousGameEngine {
    * Converte coordenadas lógicas do grid (gx, gy) para pixels no Canvas
    */
   public gridToWorld(gx: number, gy: number): { x: number; y: number } {
+    const rawX = this.gridBounds.offsetX + gx * this.gridBounds.cellPixelSize + this.gridBounds.cellPixelSize / 2;
+    const rawY = this.gridBounds.offsetY + gy * this.gridBounds.cellPixelSize + this.gridBounds.cellPixelSize / 2;
+
+    // Se estiver em corredores perimetrais fora do grid, evita corte nas bordas do canvas
+    const pad = Math.max(6, this.gridBounds.cellPixelSize * 0.35);
+    const clampedX = Math.max(pad, Math.min(this.canvasWidth - 14, rawX));
+    const clampedY = Math.max(pad, rawY);
+
     return {
-      x: this.gridBounds.offsetX + gx * this.gridBounds.cellPixelSize + this.gridBounds.cellPixelSize / 2,
-      y: this.gridBounds.offsetY + gy * this.gridBounds.cellPixelSize + this.gridBounds.cellPixelSize / 2,
+      x: clampedX,
+      y: clampedY,
     };
   }
 
@@ -200,9 +213,12 @@ export class ContinuousGameEngine {
       const box = slot.box;
       if (!box || box.remaining <= 0) continue;
 
-      // Conta quantos robôs já estão operando para esta caixa
-      const activeBots = this.robots.filter((r) => r.slotIndex === slot.index);
-      const unspawnedNeeded = box.remaining - activeBots.length;
+      // Conta quantos robôs já estão a caminho (buscando ou colhendo) para esta caixa.
+      // Robôs que já estão 'EXITING' já decrementaram box.remaining e não devem travar novos spawns.
+      const inFlightBots = this.robots.filter(
+        (r) => r.slotIndex === slot.index && (r.status === 'SEEKING' || r.status === 'HARVESTING')
+      );
+      const unspawnedNeeded = box.remaining - inFlightBots.length;
 
       // Se ainda precisamos de robôs e o cooldown permitiu
       if (unspawnedNeeded > 0 && this.spawnCooldowns[slot.index] <= 0) {
@@ -252,8 +268,18 @@ export class ContinuousGameEngine {
             // Reserva o bloco alvo
             this.reservedCells.add(`${bestCandidate.x},${bestCandidate.y}`);
 
-            // Converte os pontos da rota ortogonal em pixels de canvas
-            const worldWaypoints = chosen.path.map((p) => this.gridToWorld(p.x, p.y));
+            // Rota estritamente ortogonal:
+            // 1. Sobe verticalmente da doca para o corredor inferior de trânsito
+            // 2. Alinha horizontalmente até a entrada do grid deste slot
+            // 3. Segue o caminho BFS ortogonal pelo grid até o bloco
+            const corridorY = this.gridBounds.offsetY + this.level.height * this.gridBounds.cellPixelSize + this.gridBounds.cellPixelSize / 2;
+            const gridEntry = this.gridToWorld(dockPos.x, dockPos.y);
+
+            const worldWaypoints = [
+              { x: dockWorld.x, y: corridorY },
+              { x: gridEntry.x, y: corridorY },
+              ...chosen.path.map((p) => this.gridToWorld(p.x, p.y)),
+            ];
 
             const bot: MiniBot = {
               id: `bot_${this.botCounter++}`,

@@ -50,38 +50,42 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.fillStyle = '#090d16'; // Dark sci-fi blue background
       ctx.fillRect(0, 0, width, height);
 
-      // 4. Calcular métricas do Grid e das Docas
+      // 4. Calcular métricas do Grid e das Docas Integradas
       const gridW = engine.level.width;
       const gridH = engine.level.height;
 
-      // Área dedicada ao grid: 72% da altura superior
-      const gridAreaHeight = height * 0.72;
-      const gridAreaWidth = width - 32;
+      // Posição vertical e dimensões das 5 docas na base do Canvas
+      const dockAreaH = Math.min(50, Math.max(36, Math.floor(height * 0.088)));
+      const dockY = height - dockAreaH / 2 - 3;
+      const dockSideMargin = 14;
+      const dockAvailableW = width - dockSideMargin * 2;
+      const dockSpacing = dockAvailableW / 5;
+      const dockPositions = Array.from({ length: 5 }, (_, i) => ({
+        x: Math.round(dockSideMargin + dockSpacing * i + dockSpacing / 2),
+        y: Math.round(dockY),
+      }));
 
-      // Escala dinâmica de célula (até 56px no desktop, adaptada ao espaço disponível)
-      const maxCellSize = width > 550 ? 56 : 42;
-      const cellSize = Math.max(
-        16,
-        Math.min(
-          Math.floor(gridAreaWidth / gridW),
-          Math.floor(gridAreaHeight / gridH),
-          maxCellSize
-        )
+      // Espaço máximo dedicado ao tabuleiro central:
+      // O desenho sempre ocupa a maior área possível da tela, sem limites arbitrários
+      const marginTop = 10;
+      const bottomReserved = dockAreaH + 14; // Altura da doca + corredor inferior de trânsito
+      const availableBoardH = Math.max(20, height - marginTop - bottomReserved);
+
+      const marginLeft = 16;
+      const marginRight = 32; // Espaço para a porta lateral direita (26px) e corredor
+      const availableBoardW = Math.max(20, width - marginLeft - marginRight);
+
+      // A escala da célula é adaptativa para preencher a área máxima
+      // Se for 10x10, 20x20 ou 40x40, as medidas totais do tabuleiro são mantidas e as células encolhem
+      const cellSize = Math.min(
+        availableBoardW / gridW,
+        availableBoardH / gridH
       );
 
-      const boardPixelW = gridW * cellSize;
-      const boardPixelH = gridH * cellSize;
-      const offsetX = Math.floor((width - boardPixelW) / 2);
-      const offsetY = Math.max(8, Math.floor((gridAreaHeight - boardPixelH) / 2) + 8);
-
-      // Posição vertical das 5 docas na base do Canvas
-      const dockY = height - Math.min(36, Math.max(22, height * 0.08));
-      const dockAreaW = width - 36;
-      const dockSpacing = dockAreaW / 5;
-      const dockPositions = Array.from({ length: 5 }, (_, i) => ({
-        x: 18 + dockSpacing * i + dockSpacing / 2,
-        y: dockY,
-      }));
+      const boardPixelW = Math.round(gridW * cellSize);
+      const boardPixelH = Math.round(gridH * cellSize);
+      const offsetX = Math.round(marginLeft + (availableBoardW - boardPixelW) / 2);
+      const offsetY = Math.round(marginTop + (availableBoardH - boardPixelH) / 2);
 
       // Notifica o motor das métricas espaciais para cálculo de caminhos e distâncias
       engine.updateLayoutMetrics(dockPositions, cellSize, offsetX, offsetY, width, height);
@@ -89,10 +93,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // 5. Desenhar Grade de Fundo Sutil
       drawGridBackdrop(ctx, offsetX, offsetY, boardPixelW, boardPixelH, gridW, gridH, cellSize);
 
-      // 6. Desenhar Blocos da Matriz
+      // 6. Desenhar Blocos da Matriz (100% grudados sem gap)
       drawMatrixBlocks(ctx, engine.grid, palette, offsetX, offsetY, cellSize);
 
-      // 7. Desenhar Docas dos 5 Slots
+      // 7. Desenhar Docas dos 5 Slots (Círculos com quadrados e números apenas)
       drawDocks(ctx, dockPositions, engine);
 
       // 8. Desenhar Portinha Lateral Direita (Saída Exclusiva de Todos os Robôs)
@@ -101,7 +105,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // 9. Desenhar Partículas
       drawParticles(ctx, engine);
 
-      // 10. Desenhar Mini-Bots (Robôs Organizadores)
+      // 10. Desenhar Mini-Bots (Robôs Organizadores adaptados ao tamanho da célula)
       drawRobots(ctx, engine, palette, cellSize);
 
       // 11. Efeito de Celebração de Vitória
@@ -145,28 +149,34 @@ function drawGridBackdrop(
   gh: number,
   cs: number
 ) {
-  // Sombra e fundo da moldura do tabuleiro
+  // Moldura e fundo sutil do tabuleiro central
   ctx.save();
-  ctx.fillStyle = '#0f172a88';
+  ctx.fillStyle = '#0a101f';
   ctx.strokeStyle = '#1e293b';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.roundRect(x - 6, y - 6, w + 12, h + 12, 16);
+  ctx.roundRect(x - 3, y - 3, w + 6, h + 6, 6);
   ctx.fill();
   ctx.stroke();
 
-  // Grid pontilhado suave
-  ctx.fillStyle = '#33415533';
-  for (let gy = 0; gy < gh; gy++) {
-    for (let gx = 0; gx < gw; gx++) {
-      ctx.beginPath();
-      ctx.arc(x + gx * cs + cs / 2, y + gy * cs + cs / 2, 1.5, 0, Math.PI * 2);
-      ctx.fill();
+  // Grid pontilhado suave de fundo (quando células são legíveis)
+  if (cs >= 14) {
+    ctx.fillStyle = '#33415533';
+    for (let gy = 0; gy < gh; gy++) {
+      for (let gx = 0; gx < gw; gx++) {
+        ctx.beginPath();
+        ctx.arc(x + gx * cs + cs / 2, y + gy * cs + cs / 2, 1.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
   }
   ctx.restore();
 }
 
+/**
+ * Desenha os blocos da matriz contíguos (100% grudados sem gap)
+ * com contornos iluminados para peças expostas
+ */
 function drawMatrixBlocks(
   ctx: CanvasRenderingContext2D,
   grid: BoardGrid,
@@ -175,62 +185,61 @@ function drawMatrixBlocks(
   oy: number,
   cs: number
 ) {
-  const pad = Math.max(1, Math.floor(cs * 0.08));
-  const innerSize = cs - pad * 2;
-  const radius = Math.max(3, Math.floor(innerSize * 0.22));
-
-  for (let gy = 0; gy < grid.length; gy++) {
-    for (let gx = 0; gx < (grid[gy]?.length || 0); gx++) {
-      const colorId = grid[gy][gx];
+  const gh = grid.length;
+  for (let gy = 0; gy < gh; gy++) {
+    const row = grid[gy];
+    if (!row) continue;
+    const gw = row.length;
+    for (let gx = 0; gx < gw; gx++) {
+      const colorId = row[gx];
       if (!colorId) continue;
 
       const colorDef = palette[colorId];
       const hex = colorDef?.hex || '#94a3b8';
-      const bx = ox + gx * cs + pad;
-      const by = oy + gy * cs + pad;
+
+      // Pixel-snapping contíguo para garantir 0 gap sem frestas subpixel
+      const x0 = Math.round(ox + gx * cs);
+      const x1 = Math.round(ox + (gx + 1) * cs);
+      const y0 = Math.round(oy + gy * cs);
+      const y1 = Math.round(oy + (gy + 1) * cs);
+      const cellW = x1 - x0;
+      const cellH = y1 - y0;
 
       const isExposed = EdgeDetector.isCellExposed(grid, gx, gy);
 
       ctx.save();
 
-      // Sombra inferior do bloco (efeito 3D suave)
-      ctx.fillStyle = '#00000066';
-      ctx.beginPath();
-      ctx.roundRect(bx, by + 3, innerSize, innerSize, radius);
-      ctx.fill();
-
-      // Corpo principal do cubo
+      // Corpo principal do cubo da cor correspondente
       ctx.fillStyle = hex;
-      ctx.beginPath();
-      ctx.roundRect(bx, by, innerSize, innerSize, radius);
-      ctx.fill();
+      ctx.fillRect(x0, y0, cellW, cellH);
 
-      // Brilho chanfrado superior (top highlight)
-      const grad = ctx.createLinearGradient(bx, by, bx, by + innerSize);
-      grad.addColorStop(0, '#ffffff55');
-      grad.addColorStop(0.3, '#ffffff11');
-      grad.addColorStop(1, '#00000044');
+      // Chanfro e gradiente de iluminação superior
+      const grad = ctx.createLinearGradient(x0, y0, x0, y1);
+      grad.addColorStop(0, '#ffffff30');
+      grad.addColorStop(0.3, '#ffffff08');
+      grad.addColorStop(1, '#00000028');
       ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.roundRect(bx, by, innerSize, innerSize, radius);
-      ctx.fill();
+      ctx.fillRect(x0, y0, cellW, cellH);
 
-      // Contorno / Borda iluminada se for exposto (acessível pelo robô)
+      // Traço de divisão sutil entre blocos grudados (quando as células forem legíveis)
+      if (cs >= 12) {
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.18)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x0 + 0.5, y0 + 0.5, cellW - 1, cellH - 1);
+      }
+
+      // Contorno iluminado e ponto central nos blocos expostos (coletáveis)
       if (isExposed) {
         ctx.strokeStyle = '#ffffffdd';
-        ctx.lineWidth = 1.8;
-        ctx.stroke();
+        ctx.lineWidth = Math.max(1, Math.min(2.2, cs * 0.09));
+        ctx.strokeRect(x0 + 0.5, y0 + 0.5, cellW - 1, cellH - 1);
 
-        // Ponto de pulso brilhante central
-        ctx.fillStyle = '#ffffffaa';
+        // Ponto de destaque central
+        const dotRadius = Math.max(1.2, Math.min(3.5, cellW * 0.12));
+        ctx.fillStyle = '#ffffffcc';
         ctx.beginPath();
-        ctx.arc(bx + innerSize / 2, by + innerSize / 2, Math.max(1.5, innerSize * 0.09), 0, Math.PI * 2);
+        ctx.arc(x0 + cellW / 2, y0 + cellH / 2, dotRadius, 0, Math.PI * 2);
         ctx.fill();
-      } else {
-        // Células bloqueadas no miolo: contorno sutil
-        ctx.strokeStyle = '#00000044';
-        ctx.lineWidth = 1;
-        ctx.stroke();
       }
 
       ctx.restore();
@@ -238,6 +247,11 @@ function drawMatrixBlocks(
   }
 }
 
+/**
+ * Desenha as 5 Docas na base do Canvas.
+ * Leva as cores direto para os círculos, mantendo quadrados com números apenas.
+ * Sem pisca-pisca azul — apenas o número decrementando.
+ */
 function drawDocks(
   ctx: CanvasRenderingContext2D,
   docks: { x: number; y: number }[],
@@ -246,30 +260,74 @@ function drawDocks(
   docks.forEach((dock, idx) => {
     const slot = engine.bufferSlots[idx];
     const isOccupied = slot?.box !== null;
-    const colorDef = isOccupied ? engine.level.palette[slot.box!.colorId] : null;
+    const box = slot?.box;
+    const colorDef = isOccupied && box ? engine.level.palette[box.colorId] : null;
 
     ctx.save();
 
-    // Base da doca
-    ctx.fillStyle = isOccupied && colorDef ? `${colorDef.hex}33` : '#1e293b55';
-    ctx.strokeStyle = isOccupied && colorDef ? colorDef.hex : '#33415588';
-    ctx.lineWidth = isOccupied ? 2 : 1.5;
-
     const spacing = docks.length > 1 ? docks[1].x - docks[0].x : 44;
-    const rx = Math.min(22, Math.max(12, spacing * 0.38));
-    const ry = Math.min(10, Math.max(6, rx * 0.46));
+    const baseRadius = Math.min(22, Math.max(13, Math.floor(spacing * 0.36)));
 
+    // 1. Círculo base da doca receptora
     ctx.beginPath();
-    ctx.ellipse(dock.x, dock.y, rx, ry, 0, 0, Math.PI * 2);
+    ctx.arc(dock.x, dock.y, baseRadius, 0, Math.PI * 2);
+    ctx.fillStyle = isOccupied && colorDef ? `${colorDef.hex}22` : '#0f172a99';
     ctx.fill();
+    ctx.strokeStyle = isOccupied && colorDef ? `${colorDef.hex}66` : '#33415588';
+    ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // Luz de status da doca
-    if (isOccupied && colorDef) {
+    // Detalhe sutil no centro de doca livre
+    if (!isOccupied) {
+      ctx.fillStyle = '#33415566';
+      ctx.beginPath();
+      ctx.arc(dock.x, dock.y, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 2. Se ocupado por uma caixa: quadrado colorido com apenas o número restante
+    if (isOccupied && box && colorDef) {
+      const sqSize = Math.min(38, Math.max(24, Math.floor(spacing * 0.72)));
+      const sqX = dock.x - sqSize / 2;
+      const sqY = dock.y - sqSize / 2;
+      const radius = Math.max(4, Math.floor(sqSize * 0.18));
+
+      // Sombra projetada
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+      ctx.beginPath();
+      ctx.roundRect(sqX, sqY + 2, sqSize, sqSize, radius);
+      ctx.fill();
+
+      // Quadrado da cor da caixa
       ctx.fillStyle = colorDef.hex;
       ctx.beginPath();
-      ctx.arc(dock.x, dock.y, 3.5, 0, Math.PI * 2);
+      ctx.roundRect(sqX, sqY, sqSize, sqSize, radius);
       ctx.fill();
+
+      // Chanfro e gradiente de volume sutil
+      const grad = ctx.createLinearGradient(sqX, sqY, sqX, sqY + sqSize);
+      grad.addColorStop(0, 'rgba(255, 255, 255, 0.35)');
+      grad.addColorStop(0.3, 'rgba(255, 255, 255, 0.08)');
+      grad.addColorStop(1, 'rgba(0, 0, 0, 0.3)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.roundRect(sqX, sqY, sqSize, sqSize, radius);
+      ctx.fill();
+
+      // Borda nítida de contraste
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // APENAS O NÚMERO RESTANTE (reduzindo conforme os robôs coletam)
+      const numStr = String(box.remaining);
+      const scaleByLen = numStr.length >= 3 ? 0.38 : 0.52;
+      const fontSize = Math.max(11, Math.min(20, Math.floor(sqSize * scaleByLen)));
+      ctx.font = `900 ${fontSize}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = colorDef.textHex || '#ffffff';
+      ctx.fillText(numStr, dock.x, dock.y);
     }
 
     ctx.restore();
@@ -282,7 +340,8 @@ function drawRobots(
   palette: Record<string, ColorDef>,
   cellSize: number
 ) {
-  const botRadius = Math.max(9, Math.min(15, cellSize * 0.45));
+  // O tamanho do robô se adapta suavemente à densidade da grade (10x10 até 40x40)
+  const botRadius = Math.max(4.5, Math.min(14, cellSize * 0.45));
 
   for (const bot of engine.robots) {
     const colorDef = palette[bot.colorId];
@@ -295,13 +354,14 @@ function drawRobots(
     // Sombra do robô
     ctx.fillStyle = '#00000055';
     ctx.beginPath();
-    ctx.ellipse(0, 3, botRadius, botRadius * 0.6, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, Math.max(1, botRadius * 0.2), botRadius, botRadius * 0.6, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // Esteiras / Rodinhas metálicas nas laterais
     ctx.fillStyle = '#1e293b';
-    ctx.fillRect(-botRadius * 0.8, -botRadius * 0.9, botRadius * 1.6, 3);
-    ctx.fillRect(-botRadius * 0.8, botRadius * 0.9 - 3, botRadius * 1.6, 3);
+    const wheelThick = Math.max(1.2, botRadius * 0.22);
+    ctx.fillRect(-botRadius * 0.8, -botRadius * 0.9, botRadius * 1.6, wheelThick);
+    ctx.fillRect(-botRadius * 0.8, botRadius * 0.9 - wheelThick, botRadius * 1.6, wheelThick);
 
     // Corpinho metálico arredondado
     const bodyGrad = ctx.createLinearGradient(-botRadius, 0, botRadius, 0);
@@ -310,22 +370,25 @@ function drawRobots(
     bodyGrad.addColorStop(1, '#94a3b8');
     ctx.fillStyle = bodyGrad;
     ctx.beginPath();
-    ctx.roundRect(-botRadius * 0.7, -botRadius * 0.7, botRadius * 1.4, botRadius * 1.4, botRadius * 0.35);
+    ctx.roundRect(-botRadius * 0.7, -botRadius * 0.7, botRadius * 1.4, botRadius * 1.4, Math.max(1, botRadius * 0.35));
     ctx.fill();
     ctx.strokeStyle = '#475569';
-    ctx.lineWidth = 1.2;
+    ctx.lineWidth = Math.max(0.8, botRadius * 0.1);
     ctx.stroke();
 
     // Visor LED frontal (cor correspondente da caixa)
     ctx.fillStyle = hex;
     ctx.beginPath();
-    ctx.roundRect(botRadius * 0.1, -botRadius * 0.45, botRadius * 0.5, botRadius * 0.9, 2);
+    ctx.roundRect(botRadius * 0.1, -botRadius * 0.45, botRadius * 0.5, botRadius * 0.9, Math.max(0.8, botRadius * 0.18));
     ctx.fill();
-    // Brilho do visor
-    ctx.fillStyle = '#ffffffcc';
-    ctx.beginPath();
-    ctx.arc(botRadius * 0.35, -botRadius * 0.15, 1.8, 0, Math.PI * 2);
-    ctx.fill();
+
+    // Brilho do visor (se tamanho permitir)
+    if (botRadius >= 7) {
+      ctx.fillStyle = '#ffffffcc';
+      ctx.beginPath();
+      ctx.arc(botRadius * 0.35, -botRadius * 0.15, Math.max(1, botRadius * 0.12), 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     // Carga carregada pelo robô (cubo sobre a cabeça ao retornar)
     if (bot.cargoColor) {
@@ -334,13 +397,12 @@ function drawRobots(
       const cargoSize = botRadius * 0.9;
 
       ctx.save();
-      // Desenha o cubo carregado
       ctx.fillStyle = cargoHex;
       ctx.beginPath();
-      ctx.roundRect(-cargoSize / 2, -cargoSize / 2, cargoSize, cargoSize, 2);
+      ctx.roundRect(-cargoSize / 2, -cargoSize / 2, cargoSize, cargoSize, Math.max(0.5, cargoSize * 0.18));
       ctx.fill();
       ctx.strokeStyle = '#ffffffcc';
-      ctx.lineWidth = 1;
+      ctx.lineWidth = Math.max(0.6, botRadius * 0.08);
       ctx.stroke();
       ctx.restore();
     }
