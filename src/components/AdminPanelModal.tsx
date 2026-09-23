@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BoardGrid, ColorDef, LevelData } from '../core/Types';
+import { BoardGrid, ColorDef, LevelData, GlobalTuningSettings, DEFAULT_GLOBAL_TUNING } from '../core/Types';
 import { DEFAULT_PALETTE, COLOR_KEYS, getColorDef } from '../core/Colors';
 import { EdgeDetector } from '../core/EdgeDetector';
 import {
@@ -18,6 +18,12 @@ import {
   AlertCircle,
   Wrench,
   Grid,
+  Sliders,
+  Gauge,
+  Zap,
+  Timer,
+  Truck,
+  Layers,
 } from 'lucide-react';
 
 interface AdminPanelModalProps {
@@ -28,6 +34,9 @@ interface AdminPanelModalProps {
   onSaveLevel: (level: LevelData) => void;
   onPlayLevel: (level: LevelData) => void;
   onResetToDefaults: () => void;
+  globalTuning: GlobalTuningSettings;
+  onSaveGlobalTuning: (tuning: GlobalTuningSettings) => void;
+  onResetGlobalTuning: () => void;
 }
 
 export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
@@ -38,17 +47,27 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   onSaveLevel,
   onPlayLevel,
   onResetToDefaults,
+  globalTuning,
+  onSaveGlobalTuning,
+  onResetGlobalTuning,
 }) => {
   const [selectedLevelId, setSelectedLevelId] = useState(currentLevel.id);
   const [editedLevel, setEditedLevel] = useState<LevelData>(() =>
     JSON.parse(JSON.stringify(currentLevel))
   );
 
-  // Modo de edição: 'SUPPLY' (disposição das caixas) ou 'GRID' (desenhar matriz)
-  const [activeTab, setActiveTab] = useState<'SUPPLY' | 'GRID'>('SUPPLY');
+  // Modo de edição: 'SUPPLY' (caixas), 'GRID' (pixel art) ou 'GLOBAL' (tuning dev)
+  const [activeTab, setActiveTab] = useState<'SUPPLY' | 'GRID' | 'GLOBAL'>('SUPPLY');
   const [selectedBrushColor, setSelectedBrushColor] = useState<string>('#4AF');
   const [isMouseDown, setIsMouseDown] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+
+  // Configurações globais de tuning editadas
+  const [editedTuning, setEditedTuning] = useState<GlobalTuningSettings>(globalTuning);
+
+  useEffect(() => {
+    setEditedTuning(globalTuning);
+  }, [globalTuning, isOpen]);
 
   // Sincroniza ao trocar de fase no seletor
   useEffect(() => {
@@ -193,10 +212,28 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     setEditedLevel(newLvl);
   };
 
+  // Handlers para os Ajustes Globais (Dev Tuning)
+  const handleTuningChange = (field: keyof GlobalTuningSettings, val: number) => {
+    const updated = {
+      ...editedTuning,
+      [field]: val,
+    };
+    setEditedTuning(updated);
+    onSaveGlobalTuning(updated);
+  };
+
+  const handleResetTuning = () => {
+    onResetGlobalTuning();
+    setEditedTuning({ ...DEFAULT_GLOBAL_TUNING });
+    setSaveSuccessMsg('Ajustes globais restaurados para os padrões!');
+    setTimeout(() => setSaveSuccessMsg(null), 3000);
+  };
+
   // Salvar no LocalStorage
   const handleSave = () => {
     const updated = {
       ...editedLevel,
+      bufferSize: Math.max(3, Math.min(7, editedLevel.bufferSize || 5)),
       metadata: {
         ...editedLevel.metadata,
         totalBlocks: totalGridBlocks,
@@ -249,19 +286,50 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
         {/* Level Selector & Tabs */}
         <div className="px-5 py-2.5 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-400">Fase:</span>
-            <select
-              value={selectedLevelId}
-              onChange={(e) => setSelectedLevelId(e.target.value)}
-              className="bg-slate-950 border border-slate-700 text-xs font-bold text-slate-200 rounded-xl px-3 py-1.5 outline-none hover:border-cyan-500 transition-colors cursor-pointer"
-            >
-              {allLevels.map((lvl) => (
-                <option key={lvl.id} value={lvl.id}>
-                  {lvl.name} ({lvl.metadata.difficulty})
-                </option>
-              ))}
-            </select>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-400">Fase:</span>
+              <select
+                value={selectedLevelId}
+                onChange={(e) => setSelectedLevelId(e.target.value)}
+                className="bg-slate-950 border border-slate-700 text-xs font-bold text-slate-200 rounded-xl px-3 py-1.5 outline-none hover:border-cyan-500 transition-colors cursor-pointer"
+              >
+                {allLevels.map((lvl) => (
+                  <option key={lvl.id} value={lvl.id}>
+                    {lvl.name} ({lvl.metadata.difficulty})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Buffer Size (Docas da Fase) */}
+            <div className="flex items-center gap-1.5 pl-3 border-l border-slate-800">
+              <span className="text-xs font-bold text-slate-400 flex items-center gap-1">
+                <Layers className="w-3.5 h-3.5 text-cyan-400" />
+                Docas (Buffer):
+              </span>
+              <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800">
+                {[3, 4, 5, 6, 7].map((num) => (
+                  <button
+                    key={num}
+                    type="button"
+                    onClick={() => {
+                      const newLvl = JSON.parse(JSON.stringify(editedLevel)) as LevelData;
+                      newLvl.bufferSize = num;
+                      setEditedLevel(newLvl);
+                    }}
+                    className={`w-6 h-6 rounded-md text-[11px] font-mono font-bold transition-all cursor-pointer ${
+                      (editedLevel.bufferSize || 5) === num
+                        ? 'bg-cyan-500 text-slate-950 font-black shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    title={`${num} docas para caixas ativas`}
+                  >
+                    {num}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Abas */}
@@ -275,7 +343,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Disposição de Caixas (Deck)
+              Disposição de Caixas
             </button>
             <button
               type="button"
@@ -286,7 +354,19 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Editar Matriz (Pixel Art)
+              Editar Matriz
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('GLOBAL')}
+              className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1.5 ${
+                activeTab === 'GLOBAL'
+                  ? 'bg-amber-500 text-slate-950 shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              <span>Ajustes Globais (Dev)</span>
             </button>
           </div>
         </div>
@@ -578,6 +658,153 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                     );
                   })
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: GLOBAL SIMULATION TUNING (DEV MODE) */}
+          {activeTab === 'GLOBAL' && (
+            <div className="flex flex-col gap-5 max-w-3xl mx-auto py-2">
+              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-wrap items-center justify-between gap-3 shadow-inner">
+                <div>
+                  <h3 className="text-sm font-black text-white flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-cyan-400" />
+                    Parâmetros Globais de Simulação & Ritmo (Tuning Dev)
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Ajustes de física e cadência aplicados em tempo real a todas as fases para testar o game-feel.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleResetTuning}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-300 hover:text-white bg-slate-850 hover:bg-slate-800 border border-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Restaurar Padrões
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* 1. Velocidade dos Robôs */}
+                <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 flex flex-col gap-2 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                      <Gauge className="w-4 h-4 text-amber-400" />
+                      Velocidade dos Robôs
+                    </span>
+                    <span className="text-xs font-mono font-black text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/25">
+                      {editedTuning.robotSpeed} px/s
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-snug">
+                    Velocidade de movimento ortogonal dos robôs AGVs pela grade e corredores da fábrica.
+                  </p>
+                  <input
+                    type="range"
+                    min={100}
+                    max={600}
+                    step={10}
+                    value={editedTuning.robotSpeed}
+                    onChange={(e) => handleTuningChange('robotSpeed', Number(e.target.value))}
+                    className="w-full accent-amber-500 cursor-pointer mt-1"
+                  />
+                  <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                    <span>100 (Lento)</span>
+                    <span className="text-amber-400/80 font-bold">260 (Padrão)</span>
+                    <span>600 (Turbo)</span>
+                  </div>
+                </div>
+
+                {/* 2. Cadência de Spawn */}
+                <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 flex flex-col gap-2 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                      <Zap className="w-4 h-4 text-cyan-400" />
+                      Cadência de Spawn (Intervalo)
+                    </span>
+                    <span className="text-xs font-mono font-black text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-md border border-cyan-500/25">
+                      {(editedTuning.spawnCooldown * 1000).toFixed(0)} ms ({editedTuning.spawnCooldown}s)
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-snug">
+                    Intervalo mínimo entre robôs consecutivos disparados a partir da mesma doca.
+                  </p>
+                  <input
+                    type="range"
+                    min={0.02}
+                    max={0.30}
+                    step={0.01}
+                    value={editedTuning.spawnCooldown}
+                    onChange={(e) => handleTuningChange('spawnCooldown', Number(e.target.value))}
+                    className="w-full accent-cyan-400 cursor-pointer mt-1"
+                  />
+                  <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                    <span>20ms (Rajada)</span>
+                    <span className="text-cyan-400/80 font-bold">90ms (Padrão)</span>
+                    <span>300ms (Fila aberta)</span>
+                  </div>
+                </div>
+
+                {/* 3. Tempo de Colheita */}
+                <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 flex flex-col gap-2 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                      <Timer className="w-4 h-4 text-emerald-400" />
+                      Tempo de Colheita (Pop no Bloco)
+                    </span>
+                    <span className="text-xs font-mono font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/25">
+                      {(editedTuning.harvestTime * 1000).toFixed(0)} ms ({editedTuning.harvestTime}s)
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-snug">
+                    Duração que o robô pausa no bloco antes de descolar e virar em direção à esteira.
+                  </p>
+                  <input
+                    type="range"
+                    min={0.01}
+                    max={0.30}
+                    step={0.01}
+                    value={editedTuning.harvestTime}
+                    onChange={(e) => handleTuningChange('harvestTime', Number(e.target.value))}
+                    className="w-full accent-emerald-400 cursor-pointer mt-1"
+                  />
+                  <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                    <span>10ms (Instantâneo)</span>
+                    <span className="text-emerald-400/80 font-bold">80ms (Padrão)</span>
+                    <span>300ms (Pausa tátil)</span>
+                  </div>
+                </div>
+
+                {/* 4. Velocidade da Esteira Rolante */}
+                <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 flex flex-col gap-2 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                      <Truck className="w-4 h-4 text-violet-400" />
+                      Velocidade da Esteira
+                    </span>
+                    <span className="text-xs font-mono font-black text-violet-400 bg-violet-500/10 px-2 py-0.5 rounded-md border border-violet-500/25">
+                      {editedTuning.conveyorSpeed} px/s
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-snug">
+                    Velocidade das caixas subindo pela esteira rolante mecanizada até o túnel de saída.
+                  </p>
+                  <input
+                    type="range"
+                    min={30}
+                    max={250}
+                    step={5}
+                    value={editedTuning.conveyorSpeed}
+                    onChange={(e) => handleTuningChange('conveyorSpeed', Number(e.target.value))}
+                    className="w-full accent-violet-400 cursor-pointer mt-1"
+                  />
+                  <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                    <span>30 (Cadência lenta)</span>
+                    <span className="text-violet-400/80 font-bold">85 (Padrão)</span>
+                    <span>250 (Expresso)</span>
+                  </div>
+                </div>
               </div>
             </div>
           )}

@@ -197,4 +197,40 @@ if (!def || def.hex !== '#4AF' || def.name !== 'Azul Ciano') {
 }
 console.log('✓ Color normalization and definitions verified!');
 
+console.log('\n=== TEST 7: Dynamic BufferSize (3, 4, 7 slots) ===');
+for (const testSize of [3, 4, 7]) {
+  const dynamicLevel = JSON.parse(JSON.stringify(level1));
+  dynamicLevel.bufferSize = testSize;
+  const dynEngine = new ContinuousGameEngine(dynamicLevel);
+  if (dynEngine.bufferSlots.length !== testSize) {
+    throw new Error(`Expected ${testSize} buffer slots, got ${dynEngine.bufferSlots.length}`);
+  }
+  const dockPoint = dynEngine.getDockGridPos(testSize - 1);
+  if (dockPoint.y !== dynamicLevel.height) {
+    throw new Error(`Dock grid pos y expected ${dynamicLevel.height}, got ${dockPoint.y}`);
+  }
+}
+console.log('✓ Dynamic bufferSize (3, 4, 7 slots) correctly instantiates bufferSlots and coordinates!');
+
+console.log('\n=== TEST 8: Global Tuning Settings (Speed, Cadence, Harvest, Conveyor) ===');
+const tuning = StorageManager.getTuningSettings();
+if (!tuning.robotSpeed || !tuning.spawnCooldown || !tuning.harvestTime || !tuning.conveyorSpeed) {
+  throw new Error(`Invalid tuning settings: ${JSON.stringify(tuning)}`);
+}
+const customTuning = {
+  robotSpeed: 450,
+  spawnCooldown: 0.05,
+  harvestTime: 0.04,
+  conveyorSpeed: 120,
+};
+const customEngine = new ContinuousGameEngine(level1, undefined, customTuning);
+if (customEngine.tuning.robotSpeed !== 450) {
+  throw new Error(`Expected engine robotSpeed 450, got ${customEngine.tuning.robotSpeed}`);
+}
+customEngine.updateTuning({ ...customTuning, robotSpeed: 520 });
+if (customEngine.tuning.robotSpeed !== 520) {
+  throw new Error(`Expected updated robotSpeed 520, got ${customEngine.tuning.robotSpeed}`);
+}
+console.log('✓ Global Tuning settings initialized and updated correctly in runtime engine!');
+
 console.log('\n=== ALL SIMULATION TESTS PASSED SUCCESSFULLY! ===');

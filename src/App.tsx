@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { BoardGrid, LevelData } from './core/Types';
+import { BoardGrid, LevelData, GlobalTuningSettings } from './core/Types';
 import { ContinuousGameEngine, GameStatus } from './core/ContinuousGameEngine';
 import { StorageManager } from './core/StorageManager';
 import { SoundManager } from './core/SoundManager';
@@ -12,11 +12,14 @@ import { DefeatModal } from './components/DefeatModal';
 import { AdminPanelModal } from './components/AdminPanelModal';
 
 export default function App() {
-  // 1. Carrega Fases e Progresso do LocalStorage
+  // 1. Carrega Fases, Progresso e Tuning do LocalStorage
   const [levels, setLevels] = useState<LevelData[]>(() => StorageManager.getLevels());
   const [currentLevelId, setCurrentLevelId] = useState<string>(() => StorageManager.getLastLevelId());
   const [allProgress, setAllProgress] = useState(() => StorageManager.getAllProgress());
   const [isSoundEnabled, setIsSoundEnabled] = useState(() => SoundManager.isSoundEnabled());
+  const [globalTuning, setGlobalTuning] = useState<GlobalTuningSettings>(() =>
+    StorageManager.getTuningSettings()
+  );
 
   // Fase ativa atual
   const currentLevel = useMemo(() => {
@@ -26,7 +29,7 @@ export default function App() {
 
   // 2. Instância do Motor de Simulação Contínua
   const [engine, setEngine] = useState<ContinuousGameEngine>(
-    () => new ContinuousGameEngine(currentLevel)
+    () => new ContinuousGameEngine(currentLevel, undefined, globalTuning)
   );
 
   const [grid, setGrid] = useState<BoardGrid>(engine.grid);
@@ -61,7 +64,7 @@ export default function App() {
           setAllProgress(StorageManager.getAllProgress());
         }
       },
-    });
+    }, globalTuning);
 
     setEngine(newEngine);
     setGrid(newEngine.grid);
@@ -71,7 +74,7 @@ export default function App() {
     setCollectedBlocks(0);
     setTotalBlocks(newEngine.totalInitialBlocks);
     StorageManager.saveLastLevelId(lvl.id);
-  }, []);
+  }, [globalTuning]);
 
   useEffect(() => {
     initEngine(currentLevel);
@@ -131,6 +134,20 @@ export default function App() {
     setLevels(defaults);
     setCurrentLevelId(defaults[0].id);
     initEngine(defaults[0]);
+  };
+
+  // Ação: Salvar ajustes globais de simulação
+  const handleSaveGlobalTuning = (tuning: GlobalTuningSettings) => {
+    StorageManager.saveTuningSettings(tuning);
+    setGlobalTuning(tuning);
+    engine.updateTuning(tuning);
+  };
+
+  // Ação: Restaurar ajustes globais para padrões
+  const handleResetGlobalTuning = () => {
+    const defaults = StorageManager.resetTuningSettings();
+    setGlobalTuning(defaults);
+    engine.updateTuning(defaults);
   };
 
   // Ação: Alternar som
@@ -220,6 +237,9 @@ export default function App() {
         onSaveLevel={handleSaveLevelFromAdmin}
         onPlayLevel={handlePlayLevelFromAdmin}
         onResetToDefaults={handleResetToDefaults}
+        globalTuning={globalTuning}
+        onSaveGlobalTuning={handleSaveGlobalTuning}
+        onResetGlobalTuning={handleResetGlobalTuning}
       />
     </div>
   );

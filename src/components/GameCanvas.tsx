@@ -44,8 +44,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       // 2. Atualizar caixas na esteira rolante (viajam para cima até entrar no túnel)
       const conveyorBoxes = conveyorBoxesRef.current;
+      const currentConveyorSpeed = engine.tuning.conveyorSpeed;
       for (let i = conveyorBoxes.length - 1; i >= 0; i--) {
         const cb = conveyorBoxes[i];
+        cb.speed = currentConveyorSpeed;
         cb.y -= cb.speed * dt;
         // Se entrou completamente no túnel da saída, remove
         if (cb.y < 34) {
@@ -61,7 +63,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           x: engine.rightDoor.x,
           y: Math.max(65, engine.rightDoor.y),
           colorId: dep.colorId,
-          speed: 85,
+          speed: currentConveyorSpeed,
         });
       }
 
@@ -103,10 +105,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const offsetX = Math.round(leftWallW + 8 + (availableBoardW - boardPixelW) / 2);
       const offsetY = Math.round(topWallH + 8 + (availableBoardH - boardPixelH) / 2);
 
-      // Posições das 5 Docas no console industrial inferior
-      const dockSpacing = (width - 16) / 5;
+      // Posições das Docas no console industrial inferior
+      const dockCount = engine.bufferSlots.length || 5;
+      const dockSpacing = (width - 16) / dockCount;
       const dockY = height - dockConsoleH / 2 - 2;
-      const dockPositions = Array.from({ length: 5 }, (_, i) => ({
+      const dockPositions = Array.from({ length: dockCount }, (_, i) => ({
         x: Math.round(8 + dockSpacing * i + dockSpacing / 2),
         y: Math.round(dockY),
       }));
@@ -1521,9 +1524,9 @@ function drawDockConsole(
   ctx.fillRect(6, consoleY + stripeH + 5, 3, 3);
   ctx.fillRect(w - 9, consoleY + stripeH + 5, 3, 3);
 
-  // B. As 5 Baias com Botões Táteis 3D (Estilo Idêntico à Referência)
+  // B. As Baias com Botões Táteis 3D (Estilo Idêntico à Referência)
   const spacing = docks.length > 1 ? docks[1].x - docks[0].x : 54;
-  const buttonSize = Math.min(52, Math.max(34, Math.floor(spacing * 0.80)));
+  const buttonSize = Math.min(52, Math.max(24, Math.floor(spacing * 0.80)));
 
   docks.forEach((dock, idx) => {
     const slot = engine.bufferSlots[idx];

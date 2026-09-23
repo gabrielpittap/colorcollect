@@ -145,3 +145,17 @@ export interface GameSettings {
   soundEnabled: boolean;
   fastSpeed: boolean;
 }
+
+export interface GlobalTuningSettings {
+  robotSpeed: number;     // Velocidade de movimento ortogonal (px/s), padrão: 260
+  spawnCooldown: number;  // Intervalo de saída entre robôs na mesma doca (s), padrão: 0.09
+  harvestTime: number;    // Duração do pop/colheita no bloco (s), padrão: 0.08
+  conveyorSpeed: number;  // Velocidade de subida na esteira rolante (px/s), padrão: 85
+}
+
+export const DEFAULT_GLOBAL_TUNING: GlobalTuningSettings = {
+  robotSpeed: 260,
+  spawnCooldown: 0.09,
+  harvestTime: 0.08,
+  conveyorSpeed: 85,
+};

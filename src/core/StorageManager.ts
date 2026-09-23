@@ -1,4 +1,4 @@
-import { LevelData, LevelProgress, GameSettings } from './Types';
+import { LevelData, LevelProgress, GameSettings, GlobalTuningSettings, DEFAULT_GLOBAL_TUNING } from './Types';
 import { INITIAL_LEVELS } from './DefaultLevels';
 import { normalizeColorId, DEFAULT_PALETTE } from './Colors';
 
@@ -6,6 +6,7 @@ const STORAGE_KEYS = {
   LEVELS: 'colorcollect_levels_v5', // Atualizado para v5 com identificadores hexadecimais de 3 dígitos
   PROGRESS: 'colorcollect_progress_v3',
   SETTINGS: 'colorcollect_settings_v2',
+  TUNING: 'colorcollect_tuning_v1',
   LAST_LEVEL_ID: 'colorcollect_last_level_id',
 };
 
@@ -34,6 +35,7 @@ class StorageManagerClass {
       });
     });
     level.palette = { ...DEFAULT_PALETTE, ...(level.palette || {}) };
+    level.bufferSize = Math.max(3, Math.min(7, level.bufferSize || 5));
 
     // 1. Contagem real na matriz
     const gridCounts: Record<string, number> = {};
@@ -294,6 +296,57 @@ class StorageManagerClass {
         JSON.stringify({ ...current, ...settings })
       );
     } catch {}
+  }
+
+  /**
+   * Obtém os parâmetros globais de simulação (velocidade robôs, spawn, colheita, esteira)
+   */
+  public getTuningSettings(): GlobalTuningSettings {
+    if (isStorageAvailable()) {
+      try {
+        const data = localStorage.getItem(STORAGE_KEYS.TUNING);
+        if (data) {
+          const parsed = JSON.parse(data);
+          return {
+            ...DEFAULT_GLOBAL_TUNING,
+            ...parsed,
+          };
+        }
+      } catch (e) {
+        console.error('Erro ao ler tuning do localStorage:', e);
+      }
+    }
+    return { ...DEFAULT_GLOBAL_TUNING };
+  }
+
+  /**
+   * Salva os parâmetros globais de simulação
+   */
+  public saveTuningSettings(tuning: Partial<GlobalTuningSettings>): GlobalTuningSettings {
+    const updated = {
+      ...this.getTuningSettings(),
+      ...tuning,
+    };
+    if (isStorageAvailable()) {
+      try {
+        localStorage.setItem(STORAGE_KEYS.TUNING, JSON.stringify(updated));
+      } catch (e) {
+        console.error('Erro ao salvar tuning no localStorage:', e);
+      }
+    }
+    return updated;
+  }
+
+  /**
+   * Restaura os parâmetros globais de simulação para os padrões de fábrica
+   */
+  public resetTuningSettings(): GlobalTuningSettings {
+    if (isStorageAvailable()) {
+      try {
+        localStorage.setItem(STORAGE_KEYS.TUNING, JSON.stringify(DEFAULT_GLOBAL_TUNING));
+      } catch {}
+    }
+    return { ...DEFAULT_GLOBAL_TUNING };
   }
 }
 

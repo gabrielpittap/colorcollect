@@ -18,21 +18,22 @@ export class DistanceMatrix {
   // table[slotIndex][y][x] = distância euclidiana da doca do slot até a célula (x, y)
   private table: Float32Array[];
 
-  constructor(width: number, height: number) {
+  constructor(width: number, height: number, bufferSize: number = 5) {
     this.width = width;
     this.height = height;
     this.table = [];
 
-    // Calcula a posição virtual dos 5 slots na base da matriz (y = height + 1)
-    const slotPositions: SlotPosition[] = [
-      { x: (width - 1) * 0.1, y: height + 1 }, // Slot 0: Extrema esquerda
-      { x: (width - 1) * 0.3, y: height + 1 }, // Slot 1: Centro-esquerda
-      { x: (width - 1) * 0.5, y: height + 1 }, // Slot 2: Centro
-      { x: (width - 1) * 0.7, y: height + 1 }, // Slot 3: Centro-direita
-      { x: (width - 1) * 0.9, y: height + 1 }, // Slot 4: Extrema direita
-    ];
+    // Calcula a posição virtual dos slots na base da matriz (y = height + 1)
+    const slotPositions: SlotPosition[] = [];
+    for (let s = 0; s < bufferSize; s++) {
+      const norm = bufferSize > 1 ? s / (bufferSize - 1) : 0.5;
+      slotPositions.push({
+        x: (width - 1) * norm,
+        y: height + 1,
+      });
+    }
 
-    for (let s = 0; s < 5; s++) {
+    for (let s = 0; s < bufferSize; s++) {
       const slot = slotPositions[s];
       const dists = new Float32Array(width * height);
 
@@ -52,7 +53,7 @@ export class DistanceMatrix {
    * Obtém a distância pré-calculada entre o slot K e a célula (x, y)
    */
   public getDistance(slotIndex: number, x: number, y: number): number {
-    const s = Math.max(0, Math.min(4, slotIndex));
+    const s = Math.max(0, Math.min(this.table.length - 1, slotIndex));
     if (x < 0 || x >= this.width || y < 0 || y >= this.height) return Infinity;
     return this.table[s][y * this.width + x];
   }

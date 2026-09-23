@@ -5,6 +5,8 @@ import {
   LevelData,
   MiniBot,
   SupplyBox,
+  GlobalTuningSettings,
+  DEFAULT_GLOBAL_TUNING,
 } from './Types';
 import { EdgeDetector } from './EdgeDetector';
 import { DistanceMatrix } from './DistanceMatrix';
@@ -34,6 +36,7 @@ export class ContinuousGameEngine {
   public particles: CanvasParticle[] = [];
   public depositedBoxesQueue: { id: number; colorId: string }[] = [];
   private depositCounter: number = 1;
+  public tuning: GlobalTuningSettings;
 
   // Tabela de distâncias pré-calculada para seleção de alvo
   public distanceMatrix: DistanceMatrix;
@@ -41,7 +44,7 @@ export class ContinuousGameEngine {
   // Células atualmente reservadas por robôs a caminho
   private reservedCells = new Set<string>();
 
-  // Coordenadas mundiais das docas dos 5 slots
+  // Coordenadas mundiais das docas dos slots
   private dockPositions: { x: number; y: number }[] = [];
 
   // Coordenadas da porta lateral direita de saída
@@ -53,7 +56,7 @@ export class ContinuousGameEngine {
   };
 
   // Cooldown de spawn por slot para manter robôs em fila ritmada
-  private spawnCooldowns: number[] = [0, 0, 0, 0, 0];
+  private spawnCooldowns: number[] = [];
 
   // Dimensões do grid e do canvas
   public gridBounds = {
@@ -66,15 +69,23 @@ export class ContinuousGameEngine {
   public elapsedSeconds: number = 0;
   private botCounter = 1;
 
-  constructor(level: LevelData, listener?: ContinuousEngineListener) {
+  constructor(
+    level: LevelData,
+    listener?: ContinuousEngineListener,
+    tuning?: GlobalTuningSettings
+  ) {
     this.level = level;
     if (listener) this.listeners = listener;
+    this.tuning = tuning ? { ...tuning } : { ...DEFAULT_GLOBAL_TUNING };
+
+    const bufferCount = level.bufferSize || 5;
 
     this.grid = level.initialGrid.map((row) => [...row]);
-    this.bufferSlots = Array.from({ length: level.bufferSize }, (_, index) => ({
+    this.bufferSlots = Array.from({ length: bufferCount }, (_, index) => ({
       index,
       box: null,
     }));
+    this.spawnCooldowns = Array.from({ length: bufferCount }, () => 0);
 
     // Constrói pilhas de suprimento
     let boxCounter = 1;
@@ -91,12 +102,22 @@ export class ContinuousGameEngine {
     );
 
     this.totalInitialBlocks = EdgeDetector.countRemainingBlocks(this.grid);
-    this.distanceMatrix = new DistanceMatrix(level.width, level.height);
+    this.distanceMatrix = new DistanceMatrix(level.width, level.height, bufferCount);
 
-    this.dockPositions = Array.from({ length: 5 }, (_, i) => ({
+    this.dockPositions = Array.from({ length: bufferCount }, (_, i) => ({
       x: 60 + i * 70,
       y: 420,
     }));
+  }
+
+  /**
+   * Atualiza as configurações de tuning em tempo real
+   */
+  public updateTuning(newTuning: GlobalTuningSettings): void {
+    this.tuning = { ...newTuning };
+    for (const bot of this.robots) {
+      bot.speed = this.tuning.robotSpeed;
+    }
   }
 
   public canvasWidth: number = 400;
@@ -146,7 +167,8 @@ export class ContinuousGameEngine {
    * Mapeia a doca do slot K para coordenadas lógicas de grade
    */
   public getDockGridPos(slotIndex: number): GridPoint {
-    const normX = slotIndex / 4; // 0 a 1
+    const totalSlots = this.level.bufferSize || 5;
+    const normX = totalSlots > 1 ? slotIndex / (totalSlots - 1) : 0.5;
     const gx = Math.round(normX * (this.level.width - 1));
     const gy = this.level.height; // Logo abaixo da matriz
     return { x: gx, y: gy };
@@ -301,13 +323,13 @@ export class ContinuousGameEngine {
               waypoints: worldWaypoints,
               waypointIndex: 0,
               actionTimer: 0,
-              speed: 260, // Velocidade rápida e fluida de marcha ortogonal
+              speed: this.tuning.robotSpeed, // Velocidade configurável
               angle: -Math.PI / 2,
             };
 
             this.robots.push(bot);
-            // Intervalo de 90ms entre spawns para criar uma fila/comboio visualmente organizado
-            this.spawnCooldowns[slot.index] = 0.09;
+            // Intervalo configurável entre spawns para ritmo dinâmico
+            this.spawnCooldowns[slot.index] = this.tuning.spawnCooldown;
           }
         }
       }
@@ -354,7 +376,7 @@ export class ContinuousGameEngine {
           } else {
             // Chegou à face livre do bloco! Inicia coleta
             bot.status = 'HARVESTING';
-            bot.actionTimer = 0.08; // Pop satisfatório
+            bot.actionTimer = this.tuning.harvestTime; // Pop satisfatório configurável
           }
           break;
         }
@@ -566,10 +588,11 @@ export class ContinuousGameEngine {
     this.particles = [];
     this.robots = [];
     this.depositedBoxesQueue = [];
-    this.spawnCooldowns = [0, 0, 0, 0, 0];
+    const bufferCount = this.level.bufferSize || 5;
+    this.spawnCooldowns = Array.from({ length: bufferCount }, () => 0);
 
     this.grid = this.level.initialGrid.map((row) => [...row]);
-    this.bufferSlots = Array.from({ length: this.level.bufferSize }, (_, index) => ({
+    this.bufferSlots = Array.from({ length: bufferCount }, (_, index) => ({
       index,
       box: null,
     }));
