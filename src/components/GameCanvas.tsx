@@ -42,13 +42,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // 1. Atualizar simulação do motor
       engine.update(dt);
 
-      // 2. Atualizar caixas na esteira rolante (viajam para cima até o portal de saída)
+      // 2. Atualizar caixas na esteira rolante (viajam para cima até entrar no túnel)
       const conveyorBoxes = conveyorBoxesRef.current;
       for (let i = conveyorBoxes.length - 1; i >= 0; i--) {
         const cb = conveyorBoxes[i];
         cb.y -= cb.speed * dt;
-        // Se entrou no portal no topo da esteira, remove
-        if (cb.y < 45) {
+        // Se entrou completamente no túnel da saída, remove
+        if (cb.y < 34) {
           conveyorBoxes.splice(i, 1);
         }
       }
@@ -59,7 +59,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         conveyorBoxes.push({
           id: dep.id,
           x: engine.rightDoor.x,
-          y: Math.max(70, engine.rightDoor.y),
+          y: Math.max(65, engine.rightDoor.y),
           colorId: dep.colorId,
           speed: 85,
         });
@@ -84,10 +84,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const gridH = engine.level.height;
 
       // Larguras dos elementos de ambiente
-      const leftWallW = Math.min(54, Math.max(36, Math.floor(width * 0.11)));
-      const conveyorW = Math.min(52, Math.max(38, Math.floor(width * 0.12)));
-      const topWallH = Math.min(46, Math.max(32, Math.floor(height * 0.08)));
-      const dockConsoleH = Math.min(74, Math.max(52, Math.floor(height * 0.12)));
+      const leftWallW = Math.min(54, Math.max(34, Math.floor(width * 0.11)));
+      const conveyorW = Math.min(54, Math.max(38, Math.floor(width * 0.125)));
+      const topWallH = Math.min(48, Math.max(32, Math.floor(height * 0.08)));
+      const dockConsoleH = Math.min(76, Math.max(54, Math.floor(height * 0.125)));
 
       // Espaço do tabuleiro no piso de concreto da fábrica
       const availableBoardW = Math.max(20, width - leftWallW - conveyorW - 20);
@@ -116,6 +116,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       engine.rightDoor.x = width - conveyorW / 2 - 2;
       engine.rightDoor.y = offsetY + (gridH * cellSize) / 2;
 
+      // Ponto de fuga / centro horizontal da câmera
+      const cameraCenterX = width * 0.48;
+
       // 6. Renderizar Cenário da Fábrica (Piso de Concreto, Parede Superior, Parede Esquerda)
       drawFactoryEnvironment(
         ctx,
@@ -132,7 +135,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         boardPixelH
       );
 
-      // 7. Renderizar Esteira Rolante e Portal de Saída lateral ("SAÍDA >>")
+      // 7. Sombra de Contato Global do Aglomerado de Caixas no Piso
+      drawClusterFloorShadow(
+        ctx,
+        engine.grid,
+        offsetX,
+        offsetY,
+        cellSize,
+        gridW,
+        gridH,
+        cameraCenterX
+      );
+
+      // 8. Renderizar Esteira Rolante e Portal de Saída lateral ("SAÍDA >>")
       drawConveyorAndPortal(
         ctx,
         width,
@@ -142,11 +157,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         dockConsoleH,
         currentTime,
         conveyorBoxes,
-        palette
+        palette,
+        cameraCenterX
       );
 
-      // 8. Renderização Z-Buffer Ordenada por Profundidade (Painter's Algorithm)
-      // Combina caixas 3D e robôs AGVs ordenados pela coordenada Y para oclusão física perfeita!
+      // 9. Renderização Z-Buffer Ordenada por Profundidade (Painter's Algorithm)
+      // Caixas 3D e robôs AGVs ordenados pela coordenada Y para oclusão física perfeita!
       renderDepthSortedEntities(
         ctx,
         engine,
@@ -156,13 +172,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         cellSize,
         gridW,
         gridH,
+        cameraCenterX,
         currentTime
       );
 
-      // 9. Renderizar Partículas de Impacto/Colheita
+      // 10. Renderizar Partículas de Impacto/Colheita
       drawParticles(ctx, engine);
 
-      // 10. Renderizar Console Industrial das 5 Docas na Base
+      // 11. Renderizar Console Industrial das 5 Docas na Base
       drawDockConsole(
         ctx,
         dockPositions,
@@ -174,7 +191,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         currentTime
       );
 
-      // 11. Efeito de Celebração de Vitória
+      // 12. Efeito de Celebração de Vitória
       if (engine.status === 'WON') {
         drawVictoryConfetti(ctx, width, height, currentTime);
       }
@@ -230,7 +247,11 @@ function adjustBrightness(hex: string, factor: number): string {
 }
 
 // ============================================================================
-// 1. Cenário e Ambiente Industrial da Mini-Fábrica
+// 1. Cenário e Ambiente Industrial da Mini-Fábrica (Piso, Paredes, Iluminação)
+// ============================================================================
+
+// ============================================================================
+// 1. Cenário e Ambiente Industrial da Mini-Fábrica (Piso, Paredes, Iluminação)
 // ============================================================================
 
 function drawFactoryEnvironment(
@@ -247,171 +268,251 @@ function drawFactoryEnvironment(
   bw: number,
   bh: number
 ) {
-  // A. Piso de Concreto Industrial da Fábrica
-  const floorGrad = ctx.createLinearGradient(0, topWallH, 0, h - dockConsoleH);
-  floorGrad.addColorStop(0, '#333b49');
-  floorGrad.addColorStop(0.5, '#2b323f');
-  floorGrad.addColorStop(1, '#242a35');
-  ctx.fillStyle = floorGrad;
-  ctx.fillRect(leftWallW, topWallH, w - leftWallW - conveyorW, h - topWallH - dockConsoleH);
+  const floorX = leftWallW;
+  const floorY = topWallH;
+  const floorW = w - leftWallW - conveyorW;
+  const floorH = h - topWallH - dockConsoleH;
 
-  // B. Juntas das Lajes Modulares de Concreto (Slabs)
-  const slabSize = 56;
+  // A. Piso de Concreto Industrial da Fábrica (Piso modular com iluminação quente)
+  const floorGrad = ctx.createLinearGradient(0, floorY, 0, floorY + floorH);
+  floorGrad.addColorStop(0, '#2e3745'); // Sombra projetada da parede superior
+  floorGrad.addColorStop(0.3, '#262e3b');
+  floorGrad.addColorStop(0.7, '#202733');
+  floorGrad.addColorStop(1, '#171c26'); // Sombra perto do console
+  ctx.fillStyle = floorGrad;
+  ctx.fillRect(floorX, floorY, floorW, floorH);
+
+  // B. Juntas de Lajes Modulares de Concreto (Slabs em proporção industrial harmoniosa)
+  const slabCols = 4;
+  const slabRows = 5;
+  const slabW = floorW / slabCols;
+  const slabH = floorH / slabRows;
+
   ctx.save();
-  ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
-  ctx.lineWidth = 1.2;
+  // Ranhura profunda da junta de concreto
+  ctx.strokeStyle = 'rgba(8, 12, 18, 0.55)';
+  ctx.lineWidth = 1.6;
   ctx.beginPath();
-  for (let x = leftWallW + slabSize; x < w - conveyorW; x += slabSize) {
-    ctx.moveTo(x, topWallH);
-    ctx.lineTo(x, h - dockConsoleH);
+  for (let c = 1; c < slabCols; c++) {
+    const x = Math.round(floorX + c * slabW);
+    ctx.moveTo(x, floorY);
+    ctx.lineTo(x, floorY + floorH);
   }
-  for (let y = topWallH + slabSize; y < h - dockConsoleH; y += slabSize) {
-    ctx.moveTo(leftWallW, y);
-    ctx.lineTo(w - conveyorW, y);
+  for (let r = 1; r < slabRows; r++) {
+    const y = Math.round(floorY + r * slabH);
+    ctx.moveTo(floorX, y);
+    ctx.lineTo(floorX + floorW, y);
   }
   ctx.stroke();
 
-  // C. Marcas de Frenagem / Curva de Pneu no Piso (Tire Skid Marks)
-  ctx.strokeStyle = 'rgba(10, 14, 23, 0.22)';
-  ctx.lineWidth = 2.5;
+  // Filete sutil de luz na quina da laje (micro-relevo)
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+  ctx.lineWidth = 1.0;
+  ctx.beginPath();
+  for (let c = 1; c < slabCols; c++) {
+    const x = Math.round(floorX + c * slabW) + 1;
+    ctx.moveTo(x, floorY);
+    ctx.lineTo(x, floorY + floorH);
+  }
+  for (let r = 1; r < slabRows; r++) {
+    const y = Math.round(floorY + r * slabH) + 1;
+    ctx.moveTo(floorX, y);
+    ctx.lineTo(floorX + floorW, y);
+  }
+  ctx.stroke();
+
+  // C. Iluminação Projetada dos Refletores Superiores (Luzes Difusas Quentes no Piso)
+  const spotPositions = [
+    { x: floorX + floorW * 0.28, y: floorY + floorH * 0.35, r: 170 },
+    { x: floorX + floorW * 0.72, y: floorY + floorH * 0.45, r: 180 },
+    { x: floorX + floorW * 0.45, y: floorY + floorH * 0.78, r: 150 },
+  ];
+  for (const sp of spotPositions) {
+    const spot = ctx.createRadialGradient(sp.x, sp.y, 10, sp.x, sp.y, sp.r);
+    spot.addColorStop(0, 'rgba(255, 246, 225, 0.065)');
+    spot.addColorStop(0.55, 'rgba(255, 246, 225, 0.02)');
+    spot.addColorStop(1, 'transparent');
+    ctx.fillStyle = spot;
+    ctx.fillRect(floorX, floorY, floorW, floorH);
+  }
+
+  // D. Marcas de Frenagem / Curva de Pneu no Piso (Tire Skid Marks dos AGVs)
+  ctx.strokeStyle = 'rgba(10, 14, 22, 0.28)';
+  ctx.lineWidth = 2.8;
   ctx.lineCap = 'round';
   ctx.beginPath();
-  // Curva de retorno perto da doca
-  ctx.moveTo(ox + 20, h - dockConsoleH - 25);
-  ctx.quadraticCurveTo(ox + 45, h - dockConsoleH - 45, ox + 80, h - dockConsoleH - 20);
-  // Curva de entrada na esteira
-  ctx.moveTo(w - conveyorW - 35, oy + bh / 2 + 30);
-  ctx.quadraticCurveTo(w - conveyorW - 15, oy + bh / 2, w - conveyorW - 5, oy + bh / 2 - 20);
+  // Curvas de manobra das docas até a área de coleta
+  ctx.moveTo(ox + bw * 0.18, floorY + floorH - 24);
+  ctx.quadraticCurveTo(ox + bw * 0.25, floorY + floorH - 52, ox + bw * 0.38, floorY + floorH - 34);
+  ctx.moveTo(ox + bw * 0.42, floorY + floorH - 28);
+  ctx.quadraticCurveTo(ox + bw * 0.55, floorY + floorH - 60, ox + bw * 0.68, floorY + floorH - 30);
+  // Curva de saída em direção à esteira
+  ctx.moveTo(ox + bw * 0.75, oy + bh * 0.65);
+  ctx.quadraticCurveTo(w - conveyorW - 32, oy + bh * 0.70, w - conveyorW - 8, oy + bh * 0.48);
   ctx.stroke();
 
-  // D. Setas Industriais Direcionais no Piso (>>>) apontando para a esteira
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-  const arrowX = w - conveyorW - 24;
-  const arrowY = h - dockConsoleH - 55;
+  // E. Setas Industriais Direcionais no Piso (>>>) apontando para a esteira
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.085)';
+  const arrowX = w - conveyorW - 20;
+  const arrowY = floorY + floorH * 0.68;
   for (let s = 0; s < 2; s++) {
-    const py = arrowY + s * 14;
+    const py = arrowY + s * 16;
     ctx.beginPath();
-    ctx.moveTo(arrowX - 8, py - 5);
-    ctx.lineTo(arrowX, py);
-    ctx.lineTo(arrowX - 8, py + 5);
-    ctx.lineTo(arrowX - 4, py);
+    ctx.moveTo(arrowX - 8, py - 6);
+    ctx.lineTo(arrowX + 2, py);
+    ctx.lineTo(arrowX - 8, py + 6);
+    ctx.lineTo(arrowX - 3, py);
     ctx.closePath();
     ctx.fill();
   }
-
-  // E. Iluminação Projetada dos Refletores Superiores (Luz Suave no Piso)
-  const spot1 = ctx.createRadialGradient(leftWallW + 80, topWallH + 60, 5, leftWallW + 80, topWallH + 60, 180);
-  spot1.addColorStop(0, 'rgba(255, 247, 237, 0.08)');
-  spot1.addColorStop(1, 'transparent');
-  ctx.fillStyle = spot1;
-  ctx.fillRect(leftWallW, topWallH, w - leftWallW - conveyorW, h - topWallH - dockConsoleH);
-
   ctx.restore();
 
-  // F. Parede Superior (Bulkhead Industrial)
+  // F. Parede Superior (Viga Industrial Bulkhead com Tubulação e Refletores)
   ctx.save();
-  // Viga metálica principal
   const beamGrad = ctx.createLinearGradient(0, 0, 0, topWallH);
-  beamGrad.addColorStop(0, '#1e2532');
-  beamGrad.addColorStop(0.7, '#283141');
-  beamGrad.addColorStop(1, '#181e29');
+  beamGrad.addColorStop(0, '#151b24');
+  beamGrad.addColorStop(0.55, '#1e2634');
+  beamGrad.addColorStop(0.9, '#121721');
+  beamGrad.addColorStop(1, '#0b0f15');
   ctx.fillStyle = beamGrad;
   ctx.fillRect(0, 0, w, topWallH);
 
-  // Rebites industriais na viga
-  ctx.fillStyle = '#475569';
-  for (let rx = 24; rx < w - 24; rx += 36) {
-    ctx.beginPath();
-    ctx.arc(rx, topWallH - 8, 2, 0, Math.PI * 2);
-    ctx.fill();
+  // Faixa de advertência zebrada amarela/preta no topo
+  const stripeH = 4;
+  for (let sx = 0; sx < w; sx += 12) {
+    ctx.fillStyle = Math.floor(sx / 12) % 2 === 0 ? '#eab308' : '#1e293b';
+    ctx.fillRect(sx, 0, 12, stripeH);
   }
 
   // Tubulação amarela de segurança com braçadeiras pretas
-  const pipeY = topWallH - 18;
-  ctx.fillStyle = '#eab308';
-  ctx.fillRect(0, pipeY, w, 6);
+  const pipeY = topWallH - 16;
+  const pipeH = 6;
+  const pipeGrad = ctx.createLinearGradient(0, pipeY, 0, pipeY + pipeH);
+  pipeGrad.addColorStop(0, '#fef08a');
+  pipeGrad.addColorStop(0.4, '#eab308');
+  pipeGrad.addColorStop(1, '#a16207');
+  ctx.fillStyle = pipeGrad;
+  ctx.fillRect(0, pipeY, w, pipeH);
+
+  // Braçadeiras pretas de fixação do cano
   ctx.fillStyle = '#0f172a';
-  for (let px = 40; px < w; px += 70) {
-    ctx.fillRect(px, pipeY - 1.5, 5, 9);
+  for (let px = 28; px < w; px += 56) {
+    ctx.fillRect(px, pipeY - 1.5, 5, pipeH + 3);
   }
 
-  // Refletores pendurados com cone sutil
-  for (let lx = 90; lx < w - 60; lx += 140) {
+  // Refletores de teto embutidos com cone de iluminação suave
+  for (let lx = 64; lx < w - 50; lx += 110) {
     ctx.fillStyle = '#334155';
-    ctx.fillRect(lx - 5, topWallH - 10, 10, 8);
+    ctx.fillRect(lx - 5, topWallH - 8, 10, 6);
     ctx.fillStyle = '#fef08a';
     ctx.beginPath();
-    ctx.arc(lx, topWallH - 2, 3.5, 0, Math.PI * 2);
+    ctx.arc(lx, topWallH - 2, 3, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // Borda chanfrada inferior da parede
-  ctx.strokeStyle = '#0f172a';
-  ctx.lineWidth = 2;
+  // Friso de contato da parede superior com o piso
+  ctx.strokeStyle = '#070b10';
+  ctx.lineWidth = 2.5;
   ctx.beginPath();
   ctx.moveTo(0, topWallH);
   ctx.lineTo(w, topWallH);
   ctx.stroke();
   ctx.restore();
 
-  // G. Parede Lateral Esquerda (Placa Industrial, Faixas de Segurança, Tanques)
+  // G. Parede Lateral Esquerda (Estrutura Industrial Sólida com Placa e Tanques)
   ctx.save();
   const leftWallGrad = ctx.createLinearGradient(0, 0, leftWallW, 0);
-  leftWallGrad.addColorStop(0, '#1a202c');
-  leftWallGrad.addColorStop(0.85, '#222a38');
-  leftWallGrad.addColorStop(1, '#141a24');
+  leftWallGrad.addColorStop(0, '#131822');
+  leftWallGrad.addColorStop(0.85, '#1c2432');
+  leftWallGrad.addColorStop(1, '#0e121a');
   ctx.fillStyle = leftWallGrad;
-  ctx.fillRect(0, topWallH, leftWallW, h - topWallH - dockConsoleH);
+  ctx.fillRect(0, topWallH, leftWallW, floorH);
 
-  // Faixa zebrada amarela e preta de perigo na borda
-  const stripeW = 5;
-  for (let sy = topWallH; sy < h - dockConsoleH; sy += 10) {
-    ctx.fillStyle = Math.floor(sy / 10) % 2 === 0 ? '#eab308' : '#1e293b';
-    ctx.fillRect(leftWallW - stripeW, sy, stripeW, 10);
+  // Faixa zebrada amarela de segurança na junção com o piso
+  const edgeStripeW = 4;
+  for (let sy = topWallH; sy < topWallH + floorH; sy += 9) {
+    ctx.fillStyle = Math.floor(sy / 9) % 2 === 0 ? '#eab308' : '#1e293b';
+    ctx.fillRect(leftWallW - edgeStripeW, sy, edgeStripeW, 9);
   }
 
-  // Tanques de gás comprimido / cilindros industriais
-  const tankW = Math.max(8, leftWallW * 0.32);
+  // Cilindros Metálicos / Tanques de Gás Comprimido
+  const tankW = Math.max(7, Math.round(leftWallW * 0.32));
   const tankH = 34;
-  const tankX = 6;
-  const tankY = topWallH + 30;
-  // Tanque 1
-  ctx.fillStyle = '#64748b';
+  const tankX = 4;
+  const tankY = topWallH + 24;
+
+  // Sombra dos tanques no piso/parede
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.fillRect(tankX + 1, tankY + tankH - 1, tankW * 2 + 3, 3);
+
+  // Tanque 1 (Aço Escovado)
+  const tank1Grad = ctx.createLinearGradient(tankX, 0, tankX + tankW, 0);
+  tank1Grad.addColorStop(0, '#334155');
+  tank1Grad.addColorStop(0.35, '#94a3b8');
+  tank1Grad.addColorStop(0.7, '#cbd5e1');
+  tank1Grad.addColorStop(1, '#1e293b');
+  ctx.fillStyle = tank1Grad;
   ctx.beginPath();
   ctx.roundRect(tankX, tankY, tankW, tankH, [tankW / 2, tankW / 2, 2, 2]);
   ctx.fill();
-  ctx.fillStyle = '#94a3b8';
-  ctx.fillRect(tankX + 2, tankY + 4, 2, tankH - 8);
-  // Tanque 2
-  ctx.fillStyle = '#475569';
+
+  // Tanque 2 (Grafite Escuro)
+  const tank2Grad = ctx.createLinearGradient(tankX + tankW + 2, 0, tankX + tankW * 2 + 2, 0);
+  tank2Grad.addColorStop(0, '#1e293b');
+  tank2Grad.addColorStop(0.4, '#64748b');
+  tank2Grad.addColorStop(0.8, '#475569');
+  tank2Grad.addColorStop(1, '#0f172a');
+  ctx.fillStyle = tank2Grad;
   ctx.beginPath();
-  ctx.roundRect(tankX + tankW + 2, tankY + 6, tankW, tankH - 6, [tankW / 2, tankW / 2, 2, 2]);
+  ctx.roundRect(tankX + tankW + 2, tankY + 4, tankW, tankH - 4, [tankW / 2, tankW / 2, 2, 2]);
   ctx.fill();
 
-  // Placa Industrial: COLOR COLLECT / SMALL ROBOTS
-  const plaqueX = 4;
-  const plaqueY = tankY + tankH + 16;
-  const plaqueW = leftWallW - stripeW - 8;
-  const plaqueH = Math.min(68, Math.max(48, leftWallW * 1.3));
+  // Braçadeiras metálicas pretas com parafusos
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(tankX - 1, tankY + 8, tankW * 2 + 4, 3);
+  ctx.fillRect(tankX - 1, tankY + tankH - 10, tankW * 2 + 4, 3);
 
-  if (plaqueW >= 22) {
-    ctx.fillStyle = '#e2e8f0';
+  // Placa Industrial Metálica com Letreiro: COLOR COLLECT
+  const plaqueX = 4;
+  const plaqueY = tankY + tankH + 14;
+  const plaqueW = leftWallW - edgeStripeW - 6;
+  const plaqueH = Math.min(68, Math.max(46, leftWallW * 1.3));
+
+  if (plaqueW >= 20) {
+    // Sombra da placa
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.fillRect(plaqueX + 1, plaqueY + 1, plaqueW, plaqueH);
+
+    // Corpo metálico esmaltado bege/cinza claro da placa
+    const plqGrad = ctx.createLinearGradient(plaqueX, plaqueY, plaqueX + plaqueW, plaqueY + plaqueH);
+    plqGrad.addColorStop(0, '#e2e8f0');
+    plqGrad.addColorStop(1, '#cbd5e1');
+    ctx.fillStyle = plqGrad;
     ctx.beginPath();
     ctx.roundRect(plaqueX, plaqueY, plaqueW, plaqueH, 3);
     ctx.fill();
-    ctx.strokeStyle = '#94a3b8';
+
+    // Moldura chanfrada
+    ctx.strokeStyle = '#64748b';
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    // 4 Parafusos nos cantos da placa
-    ctx.fillStyle = '#64748b';
-    ctx.fillRect(plaqueX + 1.5, plaqueY + 1.5, 1.5, 1.5);
-    ctx.fillRect(plaqueX + plaqueW - 3, plaqueY + 1.5, 1.5, 1.5);
-    ctx.fillRect(plaqueX + 1.5, plaqueY + plaqueH - 3, 1.5, 1.5);
-    ctx.fillRect(plaqueX + plaqueW - 3, plaqueY + plaqueH - 3, 1.5, 1.5);
+    // 4 Parafusos / Rebites nos cantos
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(plaqueX + 2, plaqueY + 2, 1.6, 1.6);
+    ctx.fillRect(plaqueX + plaqueW - 3.6, plaqueY + 2, 1.6, 1.6);
+    ctx.fillRect(plaqueX + 2, plaqueY + plaqueH - 3.6, 1.6, 1.6);
+    ctx.fillRect(plaqueX + plaqueW - 3.6, plaqueY + plaqueH - 3.6, 1.6, 1.6);
 
-    // Texto industrial elegante na placa (se espaço permitir)
-    if (plaqueW >= 28) {
+    // Mini-luminária direcionada no topo da placa
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(plaqueX + plaqueW / 2 - 3, plaqueY - 4, 6, 3);
+    ctx.fillStyle = '#fef08a';
+    ctx.beginPath();
+    ctx.arc(plaqueX + plaqueW / 2, plaqueY - 1, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (plaqueW >= 24) {
       ctx.fillStyle = '#0f172a';
       ctx.font = '900 6.5px ui-sans-serif, system-ui, sans-serif';
       ctx.textAlign = 'center';
@@ -419,27 +520,94 @@ function drawFactoryEnvironment(
       ctx.fillText('COLLECT', plaqueX + plaqueW / 2, plaqueY + 20);
 
       ctx.fillStyle = '#475569';
-      ctx.font = '700 4px ui-sans-serif, system-ui, sans-serif';
-      ctx.fillText('SMALL ROBOTS', plaqueX + plaqueW / 2, plaqueY + 30);
-      ctx.fillText('BIG LOGISTICS', plaqueX + plaqueW / 2, plaqueY + 36);
+      ctx.font = '700 3.6px ui-sans-serif, system-ui, sans-serif';
+      ctx.fillText('SMALL ROBOTS', plaqueX + plaqueW / 2, plaqueY + 31);
+      ctx.fillText('BIG LOGISTICS', plaqueX + plaqueW / 2, plaqueY + 37);
     }
   }
 
-  // Corrimão amarelo de segurança
+  // Corrimão tubular amarelo fixado no chão
   ctx.strokeStyle = '#eab308';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 2.2;
   ctx.beginPath();
-  ctx.moveTo(8, h - dockConsoleH - 60);
-  ctx.lineTo(leftWallW - 8, h - dockConsoleH - 60);
-  ctx.moveTo(leftWallW - 8, h - dockConsoleH - 60);
-  ctx.lineTo(leftWallW - 8, h - dockConsoleH - 12);
+  ctx.moveTo(5, floorY + floorH - 60);
+  ctx.lineTo(leftWallW - 6, floorY + floorH - 60);
+  ctx.moveTo(leftWallW - 6, floorY + floorH - 60);
+  ctx.lineTo(leftWallW - 6, floorY + floorH - 10);
   ctx.stroke();
+
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(leftWallW - 8, floorY + floorH - 11, 4, 3);
+  ctx.restore();
+}
+
+// ============================================================================
+// 2. Sombra de Contato Global do Aglomerado de Caixas (Ambient Floor Shadow)
+// ============================================================================
+
+function drawClusterFloorShadow(
+  ctx: CanvasRenderingContext2D,
+  grid: BoardGrid,
+  ox: number,
+  oy: number,
+  cs: number,
+  gw: number,
+  gh: number,
+  cameraCenterX: number
+) {
+  ctx.save();
+
+  // 1. Projeção de sombras de contato individuais e direcionais no piso
+  for (let gy = 0; gy < gh; gy++) {
+    const row = grid[gy];
+    if (!row) continue;
+    for (let gx = 0; gx < gw; gx++) {
+      if (!row[gx]) continue;
+
+      const cellX = ox + gx * cs;
+      const cellY = oy + gy * cs;
+
+      const hasSouth = gy + 1 < gh && grid[gy + 1] && grid[gy + 1][gx] !== null;
+      const hasEast = gx + 1 < gw && grid[gy][gx + 1] !== null;
+
+      // Se a face Sul está exposta ao piso de concreto:
+      if (!hasSouth) {
+        const topH = Math.round(cs * 0.74);
+        const frontH = Math.round(cs * 0.32);
+        const groundY = cellY + topH + frontH;
+
+        // A. Sombra de contato escura imediata
+        ctx.fillStyle = 'rgba(8, 12, 18, 0.65)';
+        ctx.beginPath();
+        ctx.ellipse(cellX + cs / 2, groundY, cs * 0.50, Math.max(2.5, cs * 0.12), 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // B. Sombra direcional difusa suave projetada para o sul (luz vem do topo)
+        const dropGrad = ctx.createLinearGradient(0, groundY, 0, groundY + cs * 0.38);
+        dropGrad.addColorStop(0, 'rgba(8, 12, 18, 0.40)');
+        dropGrad.addColorStop(1, 'rgba(8, 12, 18, 0)');
+        ctx.fillStyle = dropGrad;
+        ctx.fillRect(cellX - cs * 0.05, groundY, cs * 1.1, cs * 0.38);
+      }
+
+      // Se a face Leste está exposta ao piso (luz vem do topo-esquerdo):
+      if (!hasEast) {
+        const shadowX = cellX + cs;
+        const topH = Math.round(cs * 0.74);
+        const sideGrad = ctx.createLinearGradient(shadowX, 0, shadowX + cs * 0.20, 0);
+        sideGrad.addColorStop(0, 'rgba(8, 12, 18, 0.28)');
+        sideGrad.addColorStop(1, 'rgba(8, 12, 18, 0)');
+        ctx.fillStyle = sideGrad;
+        ctx.fillRect(shadowX, cellY + 2, cs * 0.20, topH);
+      }
+    }
+  }
 
   ctx.restore();
 }
 
 // ============================================================================
-// 2. Esteira Rolante e Portal de Saída Lateral ("SAÍDA >>")
+// 3. Esteira Rolante e Portal Físico de Saída Recessado ("SAÍDA >>")
 // ============================================================================
 
 function drawConveyorAndPortal(
@@ -451,7 +619,8 @@ function drawConveyorAndPortal(
   dockConsoleH: number,
   time: number,
   conveyorBoxes: ConveyorBox[],
-  palette: Record<string, ColorDef>
+  palette: Record<string, ColorDef>,
+  cameraCenterX: number
 ) {
   const conveyorX = w - conveyorW;
   const conveyorY = topWallH;
@@ -459,125 +628,167 @@ function drawConveyorAndPortal(
 
   ctx.save();
 
-  // A. Canal metálico da esteira
+  // A. Canal Metálico Estrutural da Esteira
   const channelGrad = ctx.createLinearGradient(conveyorX, 0, w, 0);
-  channelGrad.addColorStop(0, '#141a24');
-  channelGrad.addColorStop(0.3, '#1f2735');
-  channelGrad.addColorStop(0.8, '#18202d');
-  channelGrad.addColorStop(1, '#0f141d');
+  channelGrad.addColorStop(0, '#0d121a');
+  channelGrad.addColorStop(0.2, '#161e2a');
+  channelGrad.addColorStop(0.8, '#131822');
+  channelGrad.addColorStop(1, '#090d14');
   ctx.fillStyle = channelGrad;
   ctx.fillRect(conveyorX, conveyorY, conveyorW, conveyorH);
 
-  // Faixas amarelas e pretas de segurança na guia esquerda da esteira
-  const stripeW = 4;
+  // B. Guardrails Industriais Amarelos com Faixas Zebradas em AMBOS os Lados
+  const railW = 4.5;
   for (let sy = conveyorY; sy < conveyorY + conveyorH; sy += 10) {
-    ctx.fillStyle = Math.floor(sy / 10) % 2 === 0 ? '#eab308' : '#1e293b';
-    ctx.fillRect(conveyorX, sy, stripeW, 10);
+    const isStripe = Math.floor(sy / 10) % 2 === 0;
+    // Guardrail esquerdo
+    ctx.fillStyle = isStripe ? '#eab308' : '#1e293b';
+    ctx.fillRect(conveyorX, sy, railW, 10);
+    // Guardrail direito
+    ctx.fillStyle = isStripe ? '#eab308' : '#1e293b';
+    ctx.fillRect(w - railW, sy, railW, 10);
   }
 
-  // Trilho guia direito
-  ctx.fillStyle = '#334155';
-  ctx.fillRect(w - 3, conveyorY, 3, conveyorH);
+  // Filete metálico superior nos guardrails
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillRect(conveyorX, conveyorY, railW, 1.5);
+  ctx.fillRect(w - railW, conveyorY, railW, 1.5);
 
-  // B. Roletes Animados da Esteira (Roller Bed que gira continuamente)
-  const rollerSpacing = 11;
-  const scrollOffset = (time * 0.05) % rollerSpacing;
-  const rollerX = conveyorX + stripeW + 2;
-  const rollerW = conveyorW - stripeW - 5;
+  // C. Roletes Cilíndricos da Esteira Mecanizada
+  const rollerSpacing = 12;
+  const scrollOffset = (time * 0.06) % rollerSpacing;
+  const rollerX = conveyorX + railW + 1.5;
+  const rollerW = conveyorW - railW * 2 - 3;
 
-  ctx.lineWidth = 1;
-  for (let ry = conveyorY + 50 - scrollOffset; ry < conveyorY + conveyorH; ry += rollerSpacing) {
-    const rollerGrad = ctx.createLinearGradient(0, ry - 2, 0, ry + 2);
-    rollerGrad.addColorStop(0, '#475569');
-    rollerGrad.addColorStop(0.5, '#94a3b8');
-    rollerGrad.addColorStop(1, '#334155');
+  for (let ry = conveyorY + 36 - scrollOffset; ry < conveyorY + conveyorH; ry += rollerSpacing) {
+    const rollerGrad = ctx.createLinearGradient(0, ry - 2, 0, ry + 3.5);
+    rollerGrad.addColorStop(0, '#334155');
+    rollerGrad.addColorStop(0.35, '#94a3b8');
+    rollerGrad.addColorStop(0.7, '#475569');
+    rollerGrad.addColorStop(1, '#1e293b');
     ctx.fillStyle = rollerGrad;
     ctx.beginPath();
-    ctx.roundRect(rollerX, ry - 2, rollerW, 4, 1.5);
+    ctx.roundRect(rollerX, ry - 2, rollerW, 5, 1.5);
     ctx.fill();
   }
 
-  // C. Caixas Físicas Transportadas na Esteira Rolante
+  // D. Caixas Transportadas na Esteira (3D com acabamento de brinquedo)
   for (const box of conveyorBoxes) {
     const colorDef = getColorDef(palette, box.colorId);
-    const boxSize = Math.min(24, Math.max(16, rollerW * 0.72));
-    const bx = rollerX + (rollerW - boxSize) / 2;
-    const by = box.y;
+    const boxSize = Math.min(26, Math.max(18, Math.round(rollerW * 0.82)));
+    const bx = Math.round(rollerX + (rollerW - boxSize) / 2);
+    const by = Math.round(box.y);
 
-    // Sombra da caixa na esteira
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    // Sombra de contato nos roletes
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
     ctx.beginPath();
-    ctx.ellipse(bx + boxSize / 2, by + boxSize - 1, boxSize * 0.45, 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(bx + boxSize / 2, by + boxSize * 0.75, boxSize * 0.46, 3.5, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Frente da caixa
-    const frontH = Math.round(boxSize * 0.35);
-    ctx.fillStyle = adjustBrightness(colorDef.hex, 0.75);
+    const topH = Math.round(boxSize * 0.72);
+    const frontH = Math.round(boxSize * 0.30);
+    const radius = 2.5;
+
+    // Face Frontal da caixa na esteira
+    const frontGrad = ctx.createLinearGradient(bx, by + topH, bx, by + topH + frontH);
+    frontGrad.addColorStop(0, adjustBrightness(colorDef.hex, 0.78));
+    frontGrad.addColorStop(1, adjustBrightness(colorDef.hex, 0.60));
+    ctx.fillStyle = frontGrad;
     ctx.beginPath();
-    ctx.roundRect(bx, by + boxSize - frontH, boxSize, frontH, [0, 0, 3, 3]);
+    ctx.roundRect(bx, by + topH, boxSize, frontH, [0, 0, radius, radius]);
     ctx.fill();
 
-    // Topo da caixa
+    // Seam central da caixa
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(bx + boxSize / 2, by + topH);
+    ctx.lineTo(bx + boxSize / 2, by + topH + frontH);
+    ctx.stroke();
+
+    // Face Superior da caixa
     ctx.fillStyle = colorDef.hex;
     ctx.beginPath();
-    ctx.roundRect(bx, by, boxSize, boxSize - frontH, [3, 3, 0, 0]);
+    ctx.roundRect(bx, by, boxSize, topH, [radius, radius, 0, 0]);
     ctx.fill();
 
-    // Fita adesiva da caixa
-    ctx.fillStyle = 'rgba(217, 119, 6, 0.6)';
-    ctx.fillRect(bx + boxSize * 0.38, by, boxSize * 0.24, boxSize - frontH);
+    const tGrad = ctx.createLinearGradient(bx, by, bx + boxSize, by + topH);
+    tGrad.addColorStop(0, 'rgba(255, 255, 255, 0.32)');
+    tGrad.addColorStop(1, 'rgba(0, 0, 0, 0.12)');
+    ctx.fillStyle = tGrad;
+    ctx.beginPath();
+    ctx.roundRect(bx, by, boxSize, topH, [radius, radius, 0, 0]);
+    ctx.fill();
+
+    // Fita adesiva translúcida
+    const isWhite = colorDef.hex.toLowerCase() === '#fff' || colorDef.hex.toLowerCase() === '#ffffff' || colorDef.hex.toLowerCase() === '#f8fafc';
+    const tapeColor = isWhite ? 'rgba(203, 213, 225, 0.65)' : 'rgba(217, 119, 6, 0.55)';
+    const tapeW = Math.max(3, Math.round(boxSize * 0.22));
+    ctx.fillStyle = tapeColor;
+    ctx.fillRect(Math.round(bx + (boxSize - tapeW) / 2), by, tapeW, topH + Math.min(frontH * 0.6, 4));
   }
 
-  // D. Portal Iluminado de Saída ("SAÍDA >>") no Topo da Esteira
-  const portalH = 50;
-  const portalY = topWallH - 4;
+  // E. PORTAL FÍSICO RECESSADO DE SAÍDA (Túnel Arqueado com Arco Neon Ciano)
+  // Desenhado após as caixas para que elas deslizem para DENTRO da escuridão do portal!
+  const portalH = 54;
+  const portalY = topWallH - 2;
+  const portalX = rollerX - 3.5;
+  const portalWidth = rollerW + 7;
+  const archRadius = Math.round(portalWidth / 2);
 
-  // Abertura interna escura do túnel
+  // 1. Cavidade profunda escura do túnel (com gradiente de profundidade)
   const tunnelGrad = ctx.createLinearGradient(0, portalY, 0, portalY + portalH);
-  tunnelGrad.addColorStop(0, '#020617');
-  tunnelGrad.addColorStop(1, '#090d16');
+  tunnelGrad.addColorStop(0, '#000204');
+  tunnelGrad.addColorStop(0.55, '#04070e');
+  tunnelGrad.addColorStop(1, '#090e17');
   ctx.fillStyle = tunnelGrad;
   ctx.beginPath();
-  ctx.roundRect(rollerX - 2, portalY + 8, rollerW + 4, portalH - 8, [6, 6, 0, 0]);
+  ctx.roundRect(portalX, portalY, portalWidth, portalH, [archRadius, archRadius, 0, 0]);
   ctx.fill();
 
-  // Arco neon azul/ciano do portal
-  ctx.strokeStyle = '#06b6d4';
-  ctx.lineWidth = 3;
-  ctx.shadowColor = '#06b6d4';
-  ctx.shadowBlur = 8;
+  // 2. Moldura metálica chanfrada do portal embutida na parede
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 4;
   ctx.beginPath();
-  ctx.roundRect(rollerX - 2, portalY + 8, rollerW + 4, portalH - 8, [6, 6, 0, 0]);
+  ctx.roundRect(portalX, portalY, portalWidth, portalH, [archRadius, archRadius, 0, 0]);
+  ctx.stroke();
+
+  // 3. Arco neon ciano luminoso contornando o arco do portal
+  ctx.strokeStyle = '#06b6d4';
+  ctx.lineWidth = 2.4;
+  ctx.shadowColor = '#06b6d4';
+  ctx.shadowBlur = 12;
+  ctx.beginPath();
+  ctx.roundRect(portalX + 1.2, portalY + 1.2, portalWidth - 2.4, portalH - 1.2, [archRadius - 1, archRadius - 1, 0, 0]);
   ctx.stroke();
   ctx.shadowBlur = 0;
 
-  // Placa superior com o letreiro neon: "SAÍDA >>"
-  const plaqueH = 16;
-  const plaqueW = conveyorW - 4;
-  ctx.fillStyle = '#0f172a';
-  ctx.beginPath();
-  ctx.roundRect(conveyorX + 2, portalY, plaqueW, plaqueH, 4);
-  ctx.fill();
-  ctx.strokeStyle = '#38bdf8';
-  ctx.lineWidth = 1.2;
-  ctx.stroke();
-
-  // Letras e setas iluminadas
+  // 4. Letreiro neon na viga bulkhead superior: "SAÍDA" e chevrons ">>"
   const pulse = (Math.sin(time * 0.006) + 1) / 2;
-  ctx.fillStyle = pulse > 0.1 ? '#38bdf8' : '#e0f2fe';
+  const signCenterX = conveyorX + conveyorW / 2;
+
+  // Texto SAÍDA
+  ctx.fillStyle = '#bae6fd';
   ctx.shadowColor = '#38bdf8';
-  ctx.shadowBlur = 4 + pulse * 6;
-  ctx.font = '900 8.5px ui-sans-serif, system-ui, sans-serif';
+  ctx.shadowBlur = 4 + pulse * 4;
+  ctx.font = '900 8px ui-sans-serif, system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('SAÍDA >>', conveyorX + plaqueW / 2 + 2, portalY + plaqueH / 2);
+  ctx.fillText('SAÍDA', signCenterX, portalY - 14);
+
+  // Chevrons >> brilhantes
+  ctx.fillStyle = '#38bdf8';
+  ctx.shadowColor = '#06b6d4';
+  ctx.shadowBlur = 6 + pulse * 6;
+  ctx.font = '900 12px ui-sans-serif, system-ui, sans-serif';
+  ctx.fillText('>>', signCenterX, portalY - 5);
   ctx.shadowBlur = 0;
 
   ctx.restore();
 }
 
 // ============================================================================
-// 3. Renderização Z-Buffer Ordenada por Profundidade (Painter's Algorithm)
+// 4. Renderização Z-Buffer Ordenada por Profundidade (Painter's Algorithm)
 // ============================================================================
 
 type RenderableEntity =
@@ -593,11 +804,12 @@ function renderDepthSortedEntities(
   cs: number,
   gw: number,
   gh: number,
+  cameraCenterX: number,
   time: number
 ) {
   const entities: RenderableEntity[] = [];
 
-  // A. Coleta todas as caixas presentes no grid
+  // A. Coleta todas as caixas presentes no grid (ordenadas pela base no chão)
   for (let gy = 0; gy < gh; gy++) {
     const row = engine.grid[gy];
     if (!row) continue;
@@ -627,20 +839,34 @@ function renderDepthSortedEntities(
   // C. Ordenação estrita do fundo para a frente (Painter's Algorithm)
   entities.sort((a, b) => a.y - b.y);
 
-  // D. Renderiza cada entidade na ordem correta
+  // D. Renderiza cada entidade na ordem de profundidade correta
   for (const ent of entities) {
     if (ent.type === 'BOX') {
       const isExposed = EdgeDetector.isCellExposed(engine.grid, ent.gx, ent.gy);
       const colorDef = getColorDef(palette, ent.colorId);
-      draw3DPhysicalBox(ctx, ent.gx, ent.gy, ox, oy, cs, colorDef, isExposed);
+      draw3DPhysicalBox(
+        ctx,
+        ent.gx,
+        ent.gy,
+        ox,
+        oy,
+        cs,
+        gw,
+        gh,
+        colorDef,
+        isExposed,
+        engine.grid,
+        cameraCenterX,
+        time
+      );
     } else {
-      drawAGVRobot(ctx, ent.bot, palette, cs, time);
+      drawAGVRobot(ctx, ent.bot, palette, cs, cameraCenterX, time);
     }
   }
 }
 
 // ============================================================================
-// 4. Caixas Físicas 3D no Tabuleiro (Physically-Grounded 3D Boxes)
+// 5. Caixas Físicas 3D de Brinquedo (Volumetric 2.5D Toy Box Pipeline)
 // ============================================================================
 
 function draw3DPhysicalBox(
@@ -650,130 +876,152 @@ function draw3DPhysicalBox(
   ox: number,
   oy: number,
   cs: number,
+  gw: number,
+  gh: number,
   colorDef: ColorDef,
-  isExposed: boolean
+  isExposed: boolean,
+  grid: BoardGrid,
+  cameraCenterX: number,
+  time: number
 ) {
-  // Posições com pixel snapping contíguo (sem frestas subpixel)
-  const x0 = Math.round(ox + gx * cs);
-  const x1 = Math.round(ox + (gx + 1) * cs);
-  const y0 = Math.round(oy + gy * cs);
-  const y1 = Math.round(oy + (gy + 1) * cs);
-  const cellW = x1 - x0;
-  const cellH = y1 - y0;
+  const cellX = ox + gx * cs;
+  const cellY = oy + gy * cs;
 
-  // Altura da extrusão 2.5D da caixa (chanfro vertical frontal)
-  const hExtrude = Math.max(3, Math.round(cs * 0.28));
-  const radius = Math.max(1, Math.round(cs * 0.08));
+  // Verificação de vizinhos
+  const hasSouth = gy + 1 < gh && grid[gy + 1] && grid[gy + 1][gx] !== null;
+  const hasEast = gx + 1 < gw && grid[gy][gx + 1] !== null;
+  const hasWest = gx - 1 >= 0 && grid[gy][gx - 1] !== null;
+
+  // Geometria estrutural 2.5D uniforme e contínua
+  const margin = Math.max(0.5, Math.round(cs * 0.025));
+  const boxW = cs - margin * 2;
+  const topH = Math.round(cs * 0.74);
+  const frontH = Math.round(cs * 0.32);
+  const radius = Math.max(2.5, Math.round(cs * 0.09));
+
+  const topX = Math.round(cellX + margin);
+  const topY = Math.round(cellY + margin);
 
   ctx.save();
 
-  // A. Sombra de Contato com o Piso (Occlusion Shadow suave sob a base da caixa)
-  ctx.fillStyle = 'rgba(10, 14, 23, 0.45)';
-  ctx.beginPath();
-  ctx.ellipse(x0 + cellW / 2, y1 - 1, cellW * 0.48, Math.max(2, cs * 0.12), 0, 0, Math.PI * 2);
-  ctx.fill();
+  // A. FACE FRONTAL (Vertical voltada diretamente para o jogador)
+  const frontY = topY + topH - 1;
 
-  // B. Face Frontal Vertical (Tonalidade mais escura para criar volume real)
-  const frontY = y1 - hExtrude;
-  const frontH = hExtrude;
-  const frontColor = adjustBrightness(colorDef.hex, 0.72);
-  const frontGrad = ctx.createLinearGradient(x0, frontY, x0, y1);
-  frontGrad.addColorStop(0, frontColor);
-  frontGrad.addColorStop(1, adjustBrightness(colorDef.hex, 0.58));
+  if (!hasSouth) {
+    // Face frontal exposta ao chão: desce até a base do bloco
+    const frontGrad = ctx.createLinearGradient(topX, frontY, topX, frontY + frontH);
+    frontGrad.addColorStop(0, adjustBrightness(colorDef.hex, 0.80));
+    frontGrad.addColorStop(0.55, adjustBrightness(colorDef.hex, 0.68));
+    frontGrad.addColorStop(1, adjustBrightness(colorDef.hex, 0.54));
+    ctx.fillStyle = frontGrad;
+    ctx.beginPath();
+    ctx.roundRect(topX, frontY, boxW, frontH, [0, 0, radius, radius]);
+    ctx.fill();
 
-  ctx.fillStyle = frontGrad;
-  ctx.beginPath();
-  ctx.roundRect(x0, frontY, cellW, frontH, [0, 0, radius, radius]);
-  ctx.fill();
+    // Fenda vertical central da dobra de papelão
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(topX + boxW / 2, frontY);
+    ctx.lineTo(topX + boxW / 2, frontY + frontH);
+    ctx.stroke();
 
-  // Fenda sutil da aba frontal de papelão
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(x0 + cellW / 2, frontY + 1);
-  ctx.lineTo(x0 + cellW / 2, y1 - 1);
-  ctx.stroke();
+    // Sombra de contato escurecida rente à base com o piso
+    ctx.fillStyle = 'rgba(8, 12, 18, 0.45)';
+    ctx.fillRect(topX, frontY + frontH - 1.5, boxW, 1.5);
+  } else {
+    // Face frontal interna: preenche o vão até o topo do bloco ao sul, garantindo escultura contínua!
+    const nextTopY = Math.round(cellY + cs + margin);
+    const innerH = Math.max(2, nextTopY - frontY);
+    const innerGrad = ctx.createLinearGradient(topX, frontY, topX, frontY + innerH);
+    innerGrad.addColorStop(0, adjustBrightness(colorDef.hex, 0.78));
+    innerGrad.addColorStop(1, adjustBrightness(colorDef.hex, 0.62));
+    ctx.fillStyle = innerGrad;
+    ctx.fillRect(topX, frontY, boxW, innerH);
 
-  // Mini etiqueta / código de barras na face frontal (detalhe realista de pacote de fábrica)
-  if (cs >= 18) {
-    const labelW = Math.max(7, Math.round(cellW * 0.28));
-    const labelH = Math.max(3, Math.round(frontH * 0.55));
-    const labelX = x0 + Math.round(cellW * 0.15);
-    const labelY = frontY + Math.round((frontH - labelH) / 2);
+    // Fenda vertical central da dobra de papelão
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.20)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(topX + boxW / 2, frontY);
+    ctx.lineTo(topX + boxW / 2, frontY + innerH);
+    ctx.stroke();
 
-    ctx.fillStyle = '#f8fafc';
-    ctx.fillRect(labelX, labelY, labelW, labelH);
-
-    // Listras do código de barras
-    ctx.fillStyle = '#1e293b';
-    for (let bx = labelX + 1.5; bx < labelX + labelW - 1.5; bx += 2) {
-      ctx.fillRect(bx, labelY + 0.8, 1, labelH - 1.6);
-    }
+    // Vinco de sombra na junção com o bloco abaixo
+    ctx.fillStyle = 'rgba(8, 12, 18, 0.35)';
+    ctx.fillRect(topX, frontY + innerH - 1.2, boxW, 1.2);
   }
 
-  // C. Face Superior Horizontal (Iluminada com o tom vibrante da cor da caixa)
-  const topY = y0 - hExtrude;
-  const topH = cellH;
+  // B. BORDAS LATERAIS (Definição de volume 3D e junção lateral perfeita)
+  if (!hasEast) {
+    // Borda leste externa na penumbra
+    ctx.fillStyle = adjustBrightness(colorDef.hex, 0.62);
+    ctx.beginPath();
+    ctx.roundRect(topX + boxW - 1.6, topY + radius, 1.6, topH - radius, 0.8);
+    ctx.fill();
+  } else {
+    // Vinco limpo entre blocos adjacentes a leste
+    ctx.fillStyle = 'rgba(8, 12, 18, 0.35)';
+    ctx.fillRect(topX + boxW - 0.5, topY, 1.2, topH);
+  }
+  if (!hasWest) {
+    // Borda oeste externa capturando luz suave
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+    ctx.beginPath();
+    ctx.roundRect(topX, topY + radius, 1.2, topH - radius, 0.8);
+    ctx.fill();
+  }
+
+  // C. FACE SUPERIOR (Iluminada e vibrante com acabamento de brinquedo)
   ctx.fillStyle = colorDef.hex;
   ctx.beginPath();
-  ctx.roundRect(x0, topY, cellW, topH, [radius, radius, 0, 0]);
+  ctx.roundRect(topX, topY, boxW, topH, [radius, radius, hasSouth ? 0 : 1, hasSouth ? 0 : 1]);
   ctx.fill();
 
-  // Gradiente de reflexo e chanfro luminoso na face superior
-  const topGrad = ctx.createLinearGradient(x0, topY, x0 + cellW, topY + topH);
+  // Gradiente suave de iluminação direcional vinda do topo-esquerdo
+  const topGrad = ctx.createLinearGradient(topX, topY, topX + boxW, topY + topH);
   topGrad.addColorStop(0, 'rgba(255, 255, 255, 0.32)');
-  topGrad.addColorStop(0.45, 'rgba(255, 255, 255, 0.06)');
-  topGrad.addColorStop(1, 'rgba(0, 0, 0, 0.16)');
+  topGrad.addColorStop(0.35, 'rgba(255, 255, 255, 0.08)');
+  topGrad.addColorStop(1, 'rgba(0, 0, 0, 0.12)');
   ctx.fillStyle = topGrad;
   ctx.beginPath();
-  ctx.roundRect(x0, topY, cellW, topH, [radius, radius, 0, 0]);
+  ctx.roundRect(topX, topY, boxW, topH, [radius, radius, hasSouth ? 0 : 1, hasSouth ? 0 : 1]);
   ctx.fill();
 
-  // Borda chanfrada de separação entre caixas grudadas
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
-  ctx.lineWidth = 1;
+  // Chanfro sutil no contorno superior
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.roundRect(topX + 0.4, topY + 0.4, boxW - 0.8, topH - 0.8, [radius, radius, 0, 0]);
   ctx.stroke();
 
   // D. Fita Adesiva de Vedação na Face Superior (Packing Tape)
-  const tapeW = Math.max(3, Math.round(cellW * 0.22));
-  const tapeX = x0 + Math.round((cellW - tapeW) / 2);
-  ctx.fillStyle = 'rgba(217, 119, 6, 0.48)'; // Fita adesiva ambar translúcida
+  const isWhite = colorDef.hex.toLowerCase() === '#fff' || colorDef.hex.toLowerCase() === '#ffffff' || colorDef.hex.toLowerCase() === '#f8fafc';
+  const tapeColor = isWhite ? 'rgba(203, 213, 225, 0.65)' : 'rgba(217, 119, 6, 0.52)';
+  const tapeW = Math.max(3, Math.round(boxW * 0.22));
+  const tapeX = Math.round(topX + (boxW - tapeW) / 2);
+
+  // Corpo da fita
+  ctx.fillStyle = tapeColor;
   ctx.fillRect(tapeX, topY, tapeW, topH);
 
-  // Filete de brilho na fita adesiva
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
-  ctx.fillRect(tapeX + Math.round(tapeW / 2) - 0.5, topY, 1, topH);
+  // Filete de reflexo especular vítreo na fita adesiva
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.42)';
+  ctx.fillRect(tapeX + Math.round(tapeW * 0.35), topY, Math.max(1, tapeW * 0.25), topH);
 
-  // E. Realce de Bloco Exposto (Pronto para Coleta pelo Robô)
+  // A fita dobra e desce sobre a face frontal
+  const foldH = !hasSouth ? Math.min(frontH * 0.65, 5) : Math.min((cs - topH) * 0.65, 4);
+  ctx.fillStyle = tapeColor;
+  ctx.fillRect(tapeX, frontY, tapeW, foldH);
+
+  // E. Realce Físico de Bloco Exposto (Pulsando suavemente para indicar jogabilidade)
   if (isExposed) {
-    // 1. Contorno luminoso suave e nítido nas bordas da face superior
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-    ctx.lineWidth = Math.max(1.2, Math.min(2.2, cs * 0.08));
+    const pulse = (Math.sin(time * 0.005) + 1) / 2;
+    // Borda superior suave iluminada
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.45 + pulse * 0.40})`;
+    ctx.lineWidth = 1.2;
     ctx.beginPath();
-    ctx.roundRect(x0 + 0.5, topY + 0.5, cellW - 1, topH - 1, [radius, radius, 0, 0]);
-    ctx.stroke();
-
-    // 2. Cantoneiras de precisão industrial nos 4 cantos da face superior
-    const bLen = Math.max(3, Math.round(cellW * 0.22));
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = Math.max(1.5, Math.min(2.5, cs * 0.09));
-    ctx.beginPath();
-    // Canto Superior Esquerdo
-    ctx.moveTo(x0 + 1, topY + 1 + bLen);
-    ctx.lineTo(x0 + 1, topY + 1);
-    ctx.lineTo(x0 + 1 + bLen, topY + 1);
-    // Canto Superior Direito
-    ctx.moveTo(x0 + cellW - 1 - bLen, topY + 1);
-    ctx.lineTo(x0 + cellW - 1, topY + 1);
-    ctx.lineTo(x0 + cellW - 1, topY + 1 + bLen);
-    // Canto Inferior Esquerdo
-    ctx.moveTo(x0 + 1, topY + topH - 1 - bLen);
-    ctx.lineTo(x0 + 1, topY + topH - 1);
-    ctx.lineTo(x0 + 1 + bLen, topY + topH - 1);
-    // Canto Inferior Direito
-    ctx.moveTo(x0 + cellW - 1 - bLen, topY + topH - 1);
-    ctx.lineTo(x0 + cellW - 1, topY + topH - 1);
-    ctx.lineTo(x0 + cellW - 1, topY + topH - 1 - bLen);
+    ctx.roundRect(topX + 0.6, topY + 0.6, boxW - 1.2, topH - 1.2, [radius, radius, 0, 0]);
     ctx.stroke();
   }
 
@@ -781,87 +1029,90 @@ function draw3DPhysicalBox(
 }
 
 // ============================================================================
-// 5. Robôs Organizadores (Mini-AGVs / Veículos Autônomos de Transporte 2.5D)
+// 6. Caixa Transportada pelos Garfos do Robô (3D Consistent Cargo)
 // ============================================================================
 
-/**
- * Desenha uma caixa 3D isométrica/oblíqua física carregada nos garfos do AGV,
- * garantindo perspectiva, iluminação e gravidade estritamente consistentes com o mundo.
- */
 function draw2DBoxOnForks(
   ctx: CanvasRenderingContext2D,
   cx: number,
   cy: number,
   size: number,
-  colorDef: ColorDef
+  colorDef: ColorDef,
+  cameraCenterX: number
 ) {
-  const frontH = Math.max(3, Math.round(size * 0.34));
-  const radius = Math.max(1, Math.round(size * 0.1));
-
-  ctx.save();
-
-  // Sombra de oclusão da caixinha sob a base
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
-  ctx.beginPath();
-  ctx.ellipse(cx, cy + size / 2, size * 0.46, Math.max(2, size * 0.14), 0, 0, Math.PI * 2);
-  ctx.fill();
+  const topH = Math.round(size * 0.72);
+  const frontH = Math.round(size * 0.30);
+  const radius = Math.max(1.8, Math.round(size * 0.10));
 
   const x0 = Math.round(cx - size / 2);
   const y0 = Math.round(cy - size / 2);
 
-  // 1. Face Frontal (+Y, vertical, voltada para o jogador)
-  const frontY = y0 + size - frontH;
-  ctx.fillStyle = adjustBrightness(colorDef.hex, 0.72);
+  ctx.save();
+
+  // Sombra de oclusão da caixinha nos garfos/chão
+  ctx.fillStyle = 'rgba(8, 12, 18, 0.45)';
+  ctx.beginPath();
+  ctx.ellipse(cx, y0 + topH + frontH, size * 0.48, Math.max(2.5, size * 0.14), 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Face Frontal
+  const frontY = y0 + topH - 1;
+  const frontGrad = ctx.createLinearGradient(x0, frontY, x0, frontY + frontH);
+  frontGrad.addColorStop(0, adjustBrightness(colorDef.hex, 0.80));
+  frontGrad.addColorStop(1, adjustBrightness(colorDef.hex, 0.58));
+  ctx.fillStyle = frontGrad;
   ctx.beginPath();
   ctx.roundRect(x0, frontY, size, frontH, [0, 0, radius, radius]);
   ctx.fill();
 
-  // Fenda de aba da caixa
+  // Fenda de papelão
   ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)';
   ctx.lineWidth = 0.8;
   ctx.beginPath();
   ctx.moveTo(cx, frontY);
-  ctx.lineTo(cx, y0 + size);
+  ctx.lineTo(cx, frontY + frontH);
   ctx.stroke();
 
-  // 2. Face Superior (-Y, horizontal, iluminada pelo teto)
+  // Face Superior
   ctx.fillStyle = colorDef.hex;
   ctx.beginPath();
-  ctx.roundRect(x0, y0, size, size - frontH, [radius, radius, 0, 0]);
+  ctx.roundRect(x0, y0, size, topH, [radius, radius, 0, 0]);
   ctx.fill();
 
-  // Gradiente de brilho superior
-  const grad = ctx.createLinearGradient(x0, y0, x0 + size, y0 + size - frontH);
+  // Brilho superior
+  const grad = ctx.createLinearGradient(x0, y0, x0 + size, y0 + topH);
   grad.addColorStop(0, 'rgba(255, 255, 255, 0.35)');
   grad.addColorStop(1, 'rgba(0, 0, 0, 0.12)');
   ctx.fillStyle = grad;
   ctx.beginPath();
-  ctx.roundRect(x0, y0, size, size - frontH, [radius, radius, 0, 0]);
+  ctx.roundRect(x0, y0, size, topH, [radius, radius, 0, 0]);
   ctx.fill();
 
-  // 3. Fita adesiva ambar translúcida
-  const tapeW = Math.max(2, Math.round(size * 0.24));
-  ctx.fillStyle = 'rgba(217, 119, 6, 0.65)';
-  ctx.fillRect(Math.round(cx - tapeW / 2), y0, tapeW, size - frontH);
-
-  // Filete de contorno fino
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-  ctx.lineWidth = 0.8;
-  ctx.beginPath();
-  ctx.roundRect(x0, y0, size, size, radius);
-  ctx.stroke();
+  // Fita adesiva
+  const isWhite = colorDef.hex.toLowerCase() === '#fff' || colorDef.hex.toLowerCase() === '#ffffff' || colorDef.hex.toLowerCase() === '#f8fafc';
+  const tapeColor = isWhite ? 'rgba(203, 213, 225, 0.65)' : 'rgba(217, 119, 6, 0.58)';
+  const tapeW = Math.max(2.5, Math.round(size * 0.22));
+  const tapeX = Math.round(cx - tapeW / 2);
+  ctx.fillStyle = tapeColor;
+  ctx.fillRect(tapeX, y0, tapeW, topH + Math.min(frontH * 0.6, 4));
 
   ctx.restore();
 }
+
+// ============================================================================
+// 7. Robôs Organizadores (Mini-AGVs Robustos, Cabine Branca, Cúpula Âmbar)
+// ============================================================================
 
 function drawAGVRobot(
   ctx: CanvasRenderingContext2D,
   bot: MiniBot,
   palette: Record<string, ColorDef>,
   cellSize: number,
+  cameraCenterX: number,
   time: number
 ) {
-  const botRadius = Math.max(5.5, Math.min(16, cellSize * 0.46));
+  // Escala visual aumentada (~30% mais encorpado para presença de mini-empilhadeira industrial)
+  const botRadius = Math.max(9.5, Math.min(23, cellSize * 0.60));
   const targetColorDef = getColorDef(palette, bot.colorId);
 
   // Normaliza o ângulo ortogonal no intervalo [-PI, PI]
@@ -875,233 +1126,279 @@ function drawAGVRobot(
   const isMovingRight = !isMovingDown && !isMovingUp && !isMovingLeft;
 
   // Efeito de suspensão na colheita
-  const bounce = bot.status === 'HARVESTING' ? Math.sin(bot.actionTimer * 32) * 2.5 : 0;
+  const bounce = bot.status === 'HARVESTING' ? Math.sin(bot.actionTimer * 28) * 2.2 : 0;
   const bx = bot.x;
   const by = bot.y + bounce;
 
   const cargoDef = bot.cargoColor ? getColorDef(palette, bot.cargoColor) : null;
-  const cargoSize = Math.max(8, Math.round(botRadius * 1.15));
+  const cargoSize = Math.max(13, Math.round(botRadius * 1.30));
 
   ctx.save();
 
-  // A. Sombra de Contato do AGV no Piso de Concreto
-  ctx.fillStyle = 'rgba(10, 14, 23, 0.44)';
+  // A. Sombra de Contato em Dupla Camada (Apoiada firmemente no Piso de Concreto)
+  ctx.fillStyle = 'rgba(8, 12, 18, 0.26)';
   ctx.beginPath();
-  ctx.ellipse(bx, bot.y + botRadius * 0.35, botRadius * 1.25, botRadius * 0.68, 0, 0, Math.PI * 2);
+  ctx.ellipse(bx + 1, by + botRadius * 0.50, botRadius * 1.45, botRadius * 0.65, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // B. Se estiver indo para CIMA com carga, a carga fica atrás do robô em 2.5D: desenha antes!
+  ctx.fillStyle = 'rgba(8, 12, 18, 0.58)';
+  ctx.beginPath();
+  ctx.ellipse(bx, by + botRadius * 0.44, botRadius * 1.15, botRadius * 0.42, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // B. Se estiver indo para CIMA com carga: a carga fica na frente (acima), desenha antes
   if (cargoDef && isMovingUp) {
-    draw2DBoxOnForks(ctx, bx, by - botRadius * 0.9, cargoSize, cargoDef);
+    draw2DBoxOnForks(ctx, bx, by - botRadius * 0.88, cargoSize, cargoDef, cameraCenterX);
   }
 
-  // Dimensões do chassi adaptadas à direção
-  const isVertical = isMovingDown || isMovingUp;
-  const bodyW = isVertical ? botRadius * 1.3 : botRadius * 1.48;
-  const bodyH = isVertical ? botRadius * 1.48 : botRadius * 1.3;
+  // Dimensões do chassi 2.5D (formato robusto e equilibrado em todas as direções)
+  const bodyW = botRadius * 1.38;
+  const bodyH = botRadius * 1.38;
   const bodyX = bx - bodyW / 2;
   const bodyY = by - bodyH / 2;
-  const bodyRadius = Math.max(2, botRadius * 0.32);
+  const bodyRadius = Math.max(3.5, botRadius * 0.32);
 
-  // C. Rodas Emborrachadas do AGV
-  ctx.fillStyle = '#0f172a'; // Borracha preta
+  // C. 4 Rodas Emborrachadas Industriais com Calotas Metálicas
+  const tireColor = '#111827';
   const rimColor = '#94a3b8';
+  const isVertical = isMovingDown || isMovingUp;
 
   if (!isVertical) {
     // Marcha horizontal (Direita ou Esquerda)
-    const wheelW = botRadius * 0.58;
-    const wheelH = Math.max(2, botRadius * 0.24);
+    const wheelW = botRadius * 0.56;
+    const wheelH = Math.max(3.2, botRadius * 0.28);
     const xRear = bx - bodyW / 2 + 1;
     const xFront = bx + bodyW / 2 - wheelW - 1;
     const yTop = by - bodyH / 2 - wheelH * 0.35;
     const yBottom = by + bodyH / 2 - wheelH * 0.65;
 
-    // 4 Rodas
-    ctx.fillRect(xRear, yTop, wheelW, wheelH);
-    ctx.fillRect(xFront, yTop, wheelW, wheelH);
-    ctx.fillRect(xRear, yBottom, wheelW, wheelH);
-    ctx.fillRect(xFront, yBottom, wheelW, wheelH);
+    ctx.fillStyle = tireColor;
+    ctx.beginPath();
+    ctx.roundRect(xRear, yTop, wheelW, wheelH, 1.8);
+    ctx.roundRect(xFront, yTop, wheelW, wheelH, 1.8);
+    ctx.roundRect(xRear, yBottom, wheelW, wheelH, 1.8);
+    ctx.roundRect(xFront, yBottom, wheelW, wheelH, 1.8);
+    ctx.fill();
 
-    // Calotas metálicas
     ctx.fillStyle = rimColor;
-    ctx.fillRect(xRear + wheelW * 0.3, yTop + 0.5, wheelW * 0.4, wheelH - 1);
-    ctx.fillRect(xFront + wheelW * 0.3, yTop + 0.5, wheelW * 0.4, wheelH - 1);
-    ctx.fillRect(xRear + wheelW * 0.3, yBottom + 0.5, wheelW * 0.4, wheelH - 1);
-    ctx.fillRect(xFront + wheelW * 0.3, yBottom + 0.5, wheelW * 0.4, wheelH - 1);
+    ctx.fillRect(xRear + wheelW * 0.28, yTop + 0.8, wheelW * 0.44, wheelH - 1.6);
+    ctx.fillRect(xFront + wheelW * 0.28, yTop + 0.8, wheelW * 0.44, wheelH - 1.6);
+    ctx.fillRect(xRear + wheelW * 0.28, yBottom + 0.8, wheelW * 0.44, wheelH - 1.6);
+    ctx.fillRect(xFront + wheelW * 0.28, yBottom + 0.8, wheelW * 0.44, wheelH - 1.6);
   } else {
     // Marcha vertical (Baixo ou Cima)
-    const wheelW = Math.max(2, botRadius * 0.24);
-    const wheelH = botRadius * 0.58;
+    const wheelW = Math.max(3.2, botRadius * 0.28);
+    const wheelH = botRadius * 0.56;
     const xLeft = bx - bodyW / 2 - wheelW * 0.35;
     const xRight = bx + bodyW / 2 - wheelW * 0.65;
     const yRear = by - bodyH / 2 + 1;
     const yFront = by + bodyH / 2 - wheelH - 1;
 
-    // 4 Rodas
-    ctx.fillRect(xLeft, yRear, wheelW, wheelH);
-    ctx.fillRect(xRight, yRear, wheelW, wheelH);
-    ctx.fillRect(xLeft, yFront, wheelW, wheelH);
-    ctx.fillRect(xRight, yFront, wheelW, wheelH);
+    ctx.fillStyle = tireColor;
+    ctx.beginPath();
+    ctx.roundRect(xLeft, yRear, wheelW, wheelH, 1.8);
+    ctx.roundRect(xRight, yRear, wheelW, wheelH, 1.8);
+    ctx.roundRect(xLeft, yFront, wheelW, wheelH, 1.8);
+    ctx.roundRect(xRight, yFront, wheelW, wheelH, 1.8);
+    ctx.fill();
 
-    // Calotas metálicas
     ctx.fillStyle = rimColor;
-    ctx.fillRect(xLeft + 0.5, yRear + wheelH * 0.3, wheelW - 1, wheelH * 0.4);
-    ctx.fillRect(xRight + 0.5, yRear + wheelH * 0.3, wheelW - 1, wheelH * 0.4);
-    ctx.fillRect(xLeft + 0.5, yFront + wheelH * 0.3, wheelW - 1, wheelH * 0.4);
-    ctx.fillRect(xRight + 0.5, yFront + wheelH * 0.3, wheelW - 1, wheelH * 0.4);
+    ctx.fillRect(xLeft + 0.8, yRear + wheelH * 0.28, wheelW - 1.6, wheelH * 0.44);
+    ctx.fillRect(xRight + 0.8, yRear + wheelH * 0.28, wheelW - 1.6, wheelH * 0.44);
+    ctx.fillRect(xLeft + 0.8, yFront + wheelH * 0.28, wheelW - 1.6, wheelH * 0.44);
+    ctx.fillRect(xRight + 0.8, yFront + wheelH * 0.28, wheelW - 1.6, wheelH * 0.44);
   }
 
   // D. Garfos Mecânicos Frontais de Elevação
-  const forkThick = Math.max(1.8, botRadius * 0.16);
-  const forkLen = botRadius * 0.5;
-  ctx.fillStyle = '#64748b';
+  const forkThick = Math.max(2.2, botRadius * 0.16);
+  const forkLen = botRadius * 0.55;
+  ctx.fillStyle = '#475569';
 
   if (isMovingRight) {
     const fx = bx + bodyW / 2 - 1;
-    ctx.fillRect(fx, by - botRadius * 0.4, forkLen, forkThick);
-    ctx.fillRect(fx, by + botRadius * 0.4 - forkThick, forkLen, forkThick);
+    ctx.fillRect(fx, by - botRadius * 0.42, forkLen, forkThick);
+    ctx.fillRect(fx, by + botRadius * 0.42 - forkThick, forkLen, forkThick);
     ctx.fillStyle = '#cbd5e1';
-    ctx.fillRect(fx + forkLen - 1.5, by - botRadius * 0.4, 1.5, forkThick);
-    ctx.fillRect(fx + forkLen - 1.5, by + botRadius * 0.4 - forkThick, 1.5, forkThick);
+    ctx.fillRect(fx + forkLen - 2, by - botRadius * 0.42, 2, forkThick);
+    ctx.fillRect(fx + forkLen - 2, by + botRadius * 0.42 - forkThick, 2, forkThick);
   } else if (isMovingLeft) {
     const fx = bx - bodyW / 2 - forkLen + 1;
-    ctx.fillRect(fx, by - botRadius * 0.4, forkLen, forkThick);
-    ctx.fillRect(fx, by + botRadius * 0.4 - forkThick, forkLen, forkThick);
+    ctx.fillRect(fx, by - botRadius * 0.42, forkLen, forkThick);
+    ctx.fillRect(fx, by + botRadius * 0.42 - forkThick, forkLen, forkThick);
     ctx.fillStyle = '#cbd5e1';
-    ctx.fillRect(fx, by - botRadius * 0.4, 1.5, forkThick);
-    ctx.fillRect(fx, by + botRadius * 0.4 - forkThick, 1.5, forkThick);
+    ctx.fillRect(fx, by - botRadius * 0.42, 2, forkThick);
+    ctx.fillRect(fx, by + botRadius * 0.42 - forkThick, 2, forkThick);
   } else if (isMovingDown) {
     const fy = by + bodyH / 2 - 1;
-    ctx.fillRect(bx - botRadius * 0.4, fy, forkThick, forkLen);
-    ctx.fillRect(bx + botRadius * 0.4 - forkThick, fy, forkThick, forkLen);
+    ctx.fillRect(bx - botRadius * 0.42, fy, forkThick, forkLen);
+    ctx.fillRect(bx + botRadius * 0.42 - forkThick, fy, forkThick, forkLen);
     ctx.fillStyle = '#cbd5e1';
-    ctx.fillRect(bx - botRadius * 0.4, fy + forkLen - 1.5, forkThick, 1.5);
-    ctx.fillRect(bx + botRadius * 0.4 - forkThick, fy + forkLen - 1.5, forkThick, 1.5);
+    ctx.fillRect(bx - botRadius * 0.42, fy + forkLen - 2, forkThick, 2);
+    ctx.fillRect(bx + botRadius * 0.42 - forkThick, fy + forkLen - 2, forkThick, 2);
   } else {
     // Up
     const fy = by - bodyH / 2 - forkLen + 1;
-    ctx.fillRect(bx - botRadius * 0.4, fy, forkThick, forkLen);
-    ctx.fillRect(bx + botRadius * 0.4 - forkThick, fy, forkThick, forkLen);
+    ctx.fillRect(bx - botRadius * 0.42, fy, forkThick, forkLen);
+    ctx.fillRect(bx + botRadius * 0.42 - forkThick, fy, forkThick, forkLen);
     ctx.fillStyle = '#cbd5e1';
-    ctx.fillRect(bx - botRadius * 0.4, fy, forkThick, 1.5);
-    ctx.fillRect(bx + botRadius * 0.4 - forkThick, fy, forkThick, 1.5);
+    ctx.fillRect(bx - botRadius * 0.42, fy, forkThick, 2);
+    ctx.fillRect(bx + botRadius * 0.42 - forkThick, fy, forkThick, 2);
   }
 
-  // E. Chassi Metálico Arredondado (Iluminação do Teto Consistente)
-  const bodyGrad = ctx.createLinearGradient(0, bodyY, 0, bodyY + bodyH);
-  bodyGrad.addColorStop(0, '#ffffff'); // Luz do teto industrial
-  bodyGrad.addColorStop(0.5, '#e2e8f0');
-  bodyGrad.addColorStop(1, '#94a3b8'); // Sombra da base
-  ctx.fillStyle = bodyGrad;
+  // E. Chassi Metálico Esmaltado Branco/Grafite (Iluminação Consistente)
+  // Saia mecânica inferior escura
+  ctx.fillStyle = '#1e293b';
   ctx.beginPath();
   ctx.roundRect(bodyX, bodyY, bodyW, bodyH, bodyRadius);
   ctx.fill();
 
-  ctx.strokeStyle = '#475569';
-  ctx.lineWidth = Math.max(0.8, botRadius * 0.09);
+  // Carroceria superior branca esmaltada elevada
+  const cabMargin = Math.max(1.2, botRadius * 0.10);
+  const cabW = bodyW - cabMargin * 2;
+  const cabH = bodyH - cabMargin * 2;
+  const cabX = bodyX + cabMargin;
+  const cabY = bodyY + cabMargin - 1.5;
+
+  const cabGrad = ctx.createLinearGradient(0, cabY, 0, cabY + cabH);
+  cabGrad.addColorStop(0, '#ffffff');
+  cabGrad.addColorStop(0.55, '#f1f5f9');
+  cabGrad.addColorStop(1, '#cbd5e1');
+  ctx.fillStyle = cabGrad;
+  ctx.beginPath();
+  ctx.roundRect(cabX, cabY, cabW, cabH, Math.max(2, bodyRadius - 1));
+  ctx.fill();
+
+  ctx.strokeStyle = '#64748b';
+  ctx.lineWidth = 0.9;
   ctx.stroke();
 
-  // F. Visor Frontal LED & Olhos Digitais Expressivos
+  // F. Visor Frontal Glossy & Olhos LED Expressivos
   const eyeColor = targetColorDef ? targetColorDef.hex : '#38bdf8';
+  const eyeR = Math.max(1.5, botRadius * 0.16);
 
   if (isMovingRight) {
-    const vw = Math.max(2.5, botRadius * 0.35);
-    const vh = botRadius * 0.8;
-    const vx = bx + bodyW / 2 - vw - 1;
+    const vw = Math.max(3.5, botRadius * 0.38);
+    const vh = botRadius * 0.82;
+    const vx = bx + bodyW / 2 - vw - cabMargin;
     const vy = by - vh / 2;
 
-    ctx.fillStyle = '#090d16';
+    ctx.fillStyle = '#080c14';
     ctx.beginPath();
-    ctx.roundRect(vx, vy, vw, vh, Math.max(1, botRadius * 0.15));
+    ctx.roundRect(vx, vy, vw, vh, Math.max(1.5, botRadius * 0.16));
     ctx.fill();
 
-    // Olhos luminosos olhando para a direita
+    // Olhos digitais LED voltados para a direita
     ctx.fillStyle = eyeColor;
+    ctx.shadowColor = eyeColor;
+    ctx.shadowBlur = 4;
     ctx.beginPath();
-    ctx.arc(vx + vw * 0.55, by - botRadius * 0.2, Math.max(1, botRadius * 0.13), 0, Math.PI * 2);
-    ctx.arc(vx + vw * 0.55, by + botRadius * 0.2, Math.max(1, botRadius * 0.13), 0, Math.PI * 2);
+    ctx.arc(vx + vw * 0.55, by - botRadius * 0.22, eyeR, 0, Math.PI * 2);
+    ctx.arc(vx + vw * 0.55, by + botRadius * 0.22, eyeR, 0, Math.PI * 2);
     ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(vx + vw * 0.55, by - botRadius * 0.22, eyeR * 0.45, 0, Math.PI * 2);
+    ctx.arc(vx + vw * 0.55, by + botRadius * 0.22, eyeR * 0.45, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
   } else if (isMovingLeft) {
-    const vw = Math.max(2.5, botRadius * 0.35);
-    const vh = botRadius * 0.8;
-    const vx = bx - bodyW / 2 + 1;
+    const vw = Math.max(3.5, botRadius * 0.38);
+    const vh = botRadius * 0.82;
+    const vx = bx - bodyW / 2 + cabMargin;
     const vy = by - vh / 2;
 
-    ctx.fillStyle = '#090d16';
+    ctx.fillStyle = '#080c14';
     ctx.beginPath();
-    ctx.roundRect(vx, vy, vw, vh, Math.max(1, botRadius * 0.15));
+    ctx.roundRect(vx, vy, vw, vh, Math.max(1.5, botRadius * 0.16));
     ctx.fill();
 
-    // Olhos luminosos olhando para a esquerda
+    // Olhos digitais LED voltados para a esquerda
     ctx.fillStyle = eyeColor;
+    ctx.shadowColor = eyeColor;
+    ctx.shadowBlur = 4;
     ctx.beginPath();
-    ctx.arc(vx + vw * 0.45, by - botRadius * 0.2, Math.max(1, botRadius * 0.13), 0, Math.PI * 2);
-    ctx.arc(vx + vw * 0.45, by + botRadius * 0.2, Math.max(1, botRadius * 0.13), 0, Math.PI * 2);
+    ctx.arc(vx + vw * 0.45, by - botRadius * 0.22, eyeR, 0, Math.PI * 2);
+    ctx.arc(vx + vw * 0.45, by + botRadius * 0.22, eyeR, 0, Math.PI * 2);
     ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(vx + vw * 0.45, by - botRadius * 0.22, eyeR * 0.45, 0, Math.PI * 2);
+    ctx.arc(vx + vw * 0.45, by + botRadius * 0.22, eyeR * 0.45, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
   } else if (isMovingDown) {
-    // Visor frontal voltado diretamente para o jogador!
-    const vw = botRadius * 0.8;
-    const vh = Math.max(2.5, botRadius * 0.35);
+    // Visor frontal voltado diretamente para a câmera
+    const vw = botRadius * 0.82;
+    const vh = Math.max(3.5, botRadius * 0.38);
     const vx = bx - vw / 2;
-    const vy = by + bodyH / 2 - vh - 1;
+    const vy = by + bodyH / 2 - vh - cabMargin;
 
-    ctx.fillStyle = '#090d16';
+    ctx.fillStyle = '#080c14';
     ctx.beginPath();
-    ctx.roundRect(vx, vy, vw, vh, Math.max(1, botRadius * 0.15));
+    ctx.roundRect(vx, vy, vw, vh, Math.max(1.5, botRadius * 0.16));
     ctx.fill();
 
-    // Olhos luminosos olhando para frente
+    // Olhos digitais LED voltados para frente
     ctx.fillStyle = eyeColor;
+    ctx.shadowColor = eyeColor;
+    ctx.shadowBlur = 4;
     ctx.beginPath();
-    ctx.arc(bx - botRadius * 0.2, vy + vh * 0.55, Math.max(1, botRadius * 0.13), 0, Math.PI * 2);
-    ctx.arc(bx + botRadius * 0.2, vy + vh * 0.55, Math.max(1, botRadius * 0.13), 0, Math.PI * 2);
+    ctx.arc(bx - botRadius * 0.22, vy + vh * 0.52, eyeR, 0, Math.PI * 2);
+    ctx.arc(bx + botRadius * 0.22, vy + vh * 0.52, eyeR, 0, Math.PI * 2);
     ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(bx - botRadius * 0.22, vy + vh * 0.52, eyeR * 0.45, 0, Math.PI * 2);
+    ctx.arc(bx + botRadius * 0.22, vy + vh * 0.52, eyeR * 0.45, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
   } else {
-    // Traseira do robô (lanterna indicadora traseira)
+    // Traseira do robô (lanternas de sinalização)
     ctx.fillStyle = '#f59e0b';
-    ctx.fillRect(bx - botRadius * 0.3, by + bodyH / 2 - 2, botRadius * 0.18, 1.5);
-    ctx.fillRect(bx + botRadius * 0.12, by + bodyH / 2 - 2, botRadius * 0.18, 1.5);
+    ctx.fillRect(bx - botRadius * 0.32, by + bodyH / 2 - 3, botRadius * 0.2, 2);
+    ctx.fillRect(bx + botRadius * 0.12, by + bodyH / 2 - 3, botRadius * 0.2, 2);
   }
 
-  // G. Cúpula / Sinalizador Superior Iluminado (Warm Amber Beacon)
-  const domeRadius = Math.max(2, botRadius * 0.3);
-  const domeX = bx;
-  const domeY = by - (isMovingDown ? 1.5 : 0);
-  const pulse = (Math.sin(time * 0.007) + 1) / 2;
+  // G. Cúpula / Sinalizador Superior Iluminado (Squircle Âmbar na Cabine)
+  const domeSize = Math.max(5.5, Math.round(botRadius * 0.48));
+  const domeX = Math.round(bx - domeSize / 2);
+  const domeY = Math.round(by - domeSize / 2 - (isMovingDown ? 2.5 : 1));
+  const pulse = (Math.sin(time * 0.0075) + 1) / 2;
 
-  // Brilho quente âmbar pulsante
-  const beaconGlow = ctx.createRadialGradient(domeX, domeY, 1, domeX, domeY, domeRadius * 2);
-  beaconGlow.addColorStop(0, 'rgba(251, 191, 36, 0.95)');
-  beaconGlow.addColorStop(0.5, `rgba(245, 158, 11, ${0.4 + pulse * 0.4})`);
+  // Brilho quente suave contido
+  const beaconGlow = ctx.createRadialGradient(bx, domeY + domeSize / 2, 1, bx, domeY + domeSize / 2, domeSize * 1.4);
+  beaconGlow.addColorStop(0, 'rgba(251, 191, 36, 0.85)');
+  beaconGlow.addColorStop(0.5, `rgba(245, 158, 11, ${0.35 + pulse * 0.30})`);
   beaconGlow.addColorStop(1, 'rgba(217, 119, 6, 0)');
   ctx.fillStyle = beaconGlow;
   ctx.beginPath();
-  ctx.arc(domeX, domeY, domeRadius * 2, 0, Math.PI * 2);
+  ctx.arc(bx, domeY + domeSize / 2, domeSize * 1.4, 0, Math.PI * 2);
   ctx.fill();
 
-  // Cúpula física
+  // Moldura metálica da almofada do teto
+  ctx.fillStyle = '#64748b';
+  ctx.beginPath();
+  ctx.roundRect(domeX - 0.8, domeY - 0.8, domeSize + 1.6, domeSize + 1.6, 2.5);
+  ctx.fill();
+
+  // Almofada âmbar iluminada
   ctx.fillStyle = '#f59e0b';
   ctx.beginPath();
-  ctx.arc(domeX, domeY, domeRadius, 0, Math.PI * 2);
+  ctx.roundRect(domeX, domeY, domeSize, domeSize, 2);
   ctx.fill();
-  ctx.strokeStyle = '#d97706';
-  ctx.lineWidth = 1;
-  ctx.stroke();
 
-  // Reflexo na cúpula
+  // Ponto central de reflexo
   ctx.fillStyle = '#fef08a';
-  ctx.beginPath();
-  ctx.arc(domeX - domeRadius * 0.3, domeY - domeRadius * 0.3, domeRadius * 0.35, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.fillRect(domeX + 1, domeY + 1, domeSize * 0.35, domeSize * 0.35);
 
   // H. Carga nos Garfos Frontais (quando indo para Direita, Esquerda ou Baixo)
   if (cargoDef && !isMovingUp) {
     if (isMovingRight) {
-      draw2DBoxOnForks(ctx, bx + botRadius * 0.92, by, cargoSize, cargoDef);
+      draw2DBoxOnForks(ctx, bx + botRadius * 0.90, by, cargoSize, cargoDef, cameraCenterX);
     } else if (isMovingLeft) {
-      draw2DBoxOnForks(ctx, bx - botRadius * 0.92, by, cargoSize, cargoDef);
+      draw2DBoxOnForks(ctx, bx - botRadius * 0.90, by, cargoSize, cargoDef, cameraCenterX);
     } else if (isMovingDown) {
-      draw2DBoxOnForks(ctx, bx, by + botRadius * 0.88, cargoSize, cargoDef);
+      draw2DBoxOnForks(ctx, bx, by + botRadius * 0.88, cargoSize, cargoDef, cameraCenterX);
     }
   }
 
@@ -1109,8 +1406,77 @@ function drawAGVRobot(
 }
 
 // ============================================================================
-// 6. Console Industrial das 5 Docas na Base
+// 8. Console Industrial das 5 Docas na Base (Push-Buttons Táteis 3D)
 // ============================================================================
+
+function draw3DIsoMiniBox(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  size: number,
+  colorDef: ColorDef
+) {
+  const halfW = size * 0.52;
+  const halfH = size * 0.28;
+  const extrude = size * 0.44;
+
+  ctx.save();
+
+  // Sombra suave sob a mini caixa
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + extrude + halfH * 0.5, halfW * 1.1, halfH * 0.9, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 1. Face Esquerda (Sombreada intermediária)
+  ctx.fillStyle = adjustBrightness(colorDef.hex, 0.72);
+  ctx.beginPath();
+  ctx.moveTo(cx - halfW, cy);
+  ctx.lineTo(cx, cy + halfH);
+  ctx.lineTo(cx, cy + halfH + extrude);
+  ctx.lineTo(cx - halfW, cy + extrude);
+  ctx.closePath();
+  ctx.fill();
+
+  // 2. Face Direita (Mais escura / sombra)
+  ctx.fillStyle = adjustBrightness(colorDef.hex, 0.58);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + halfH);
+  ctx.lineTo(cx + halfW, cy);
+  ctx.lineTo(cx + halfW, cy + extrude);
+  ctx.lineTo(cx, cy + halfH + extrude);
+  ctx.closePath();
+  ctx.fill();
+
+  // 3. Face Superior (Iluminada e vibrante)
+  ctx.fillStyle = adjustBrightness(colorDef.hex, 1.08);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - halfH);
+  ctx.lineTo(cx + halfW, cy);
+  ctx.lineTo(cx, cy + halfH);
+  ctx.lineTo(cx - halfW, cy);
+  ctx.closePath();
+  ctx.fill();
+
+  // Filete de chanfro superior
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+  ctx.lineWidth = 0.8;
+  ctx.stroke();
+
+  // 4. Fita adesiva isométrica no topo
+  const isWhite = colorDef.hex.toLowerCase() === '#fff' || colorDef.hex.toLowerCase() === '#ffffff' || colorDef.hex.toLowerCase() === '#f8fafc';
+  ctx.fillStyle = isWhite ? 'rgba(203, 213, 225, 0.75)' : 'rgba(217, 119, 6, 0.65)';
+  const tw = halfW * 0.30;
+  ctx.beginPath();
+  ctx.moveTo(cx - tw * 0.5, cy - halfH * 0.5);
+  ctx.lineTo(cx + tw * 0.5, cy - halfH * 0.5);
+  ctx.lineTo(cx + tw * 0.5, cy + halfH * 0.5 + extrude * 0.3);
+  ctx.lineTo(cx - tw * 0.5, cy + halfH * 0.5 + extrude * 0.3);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
+}
 
 function drawDockConsole(
   ctx: CanvasRenderingContext2D,
@@ -1128,35 +1494,35 @@ function drawDockConsole(
 
   // A. Placa de Chassi Metálico Angular da Base
   const chassisGrad = ctx.createLinearGradient(0, consoleY, 0, h);
-  chassisGrad.addColorStop(0, '#1a222e');
-  chassisGrad.addColorStop(0.3, '#222d3d');
-  chassisGrad.addColorStop(1, '#0e141d');
+  chassisGrad.addColorStop(0, '#151c27');
+  chassisGrad.addColorStop(0.35, '#1e2736');
+  chassisGrad.addColorStop(1, '#0c1118');
   ctx.fillStyle = chassisGrad;
   ctx.fillRect(0, consoleY, w, dockConsoleH);
 
-  // Friso chanfrado superior metálico
+  // Faixa zebrada amarela de advertência no topo do console
+  const stripeH = 3.5;
+  for (let sx = 0; sx < w; sx += 12) {
+    ctx.fillStyle = Math.floor(sx / 12) % 2 === 0 ? '#eab308' : '#1e293b';
+    ctx.fillRect(sx, consoleY, 12, stripeH);
+  }
+
+  // Friso chanfrado metálico em relevo
   ctx.strokeStyle = '#475569';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(0, consoleY);
-  ctx.lineTo(w, consoleY);
+  ctx.moveTo(0, consoleY + stripeH);
+  ctx.lineTo(w, consoleY + stripeH);
   ctx.stroke();
 
   // Parafusos industriais aparentes nas extremidades do console
   ctx.fillStyle = '#64748b';
-  ctx.fillRect(6, consoleY + 4, 3, 3);
-  ctx.fillRect(w - 9, consoleY + 4, 3, 3);
+  ctx.fillRect(6, consoleY + stripeH + 5, 3, 3);
+  ctx.fillRect(w - 9, consoleY + stripeH + 5, 3, 3);
 
-  // Faixas amarelas de advertência nos cantos inferiores do console
-  for (let s = 0; s < 3; s++) {
-    ctx.fillStyle = '#eab308';
-    ctx.fillRect(10 + s * 8, h - 4, 4, 4);
-    ctx.fillRect(w - 30 + s * 8, h - 4, 4, 4);
-  }
-
-  // B. As 5 Baias Rebaixadas com Botões Táteis 3D
+  // B. As 5 Baias com Botões Táteis 3D (Estilo Idêntico à Referência)
   const spacing = docks.length > 1 ? docks[1].x - docks[0].x : 54;
-  const buttonSize = Math.min(52, Math.max(34, Math.floor(spacing * 0.78)));
+  const buttonSize = Math.min(52, Math.max(34, Math.floor(spacing * 0.80)));
 
   docks.forEach((dock, idx) => {
     const slot = engine.bufferSlots[idx];
@@ -1166,22 +1532,22 @@ function drawDockConsole(
 
     const bx = Math.round(dock.x - buttonSize / 2);
     const by = Math.round(dock.y - buttonSize / 2);
-    const radius = Math.max(4, Math.floor(buttonSize * 0.2));
+    const radius = Math.max(4, Math.floor(buttonSize * 0.22));
 
     ctx.save();
 
-    // 1. Rebaixo da baia no chassi metálico (Baia Rebaixada)
-    ctx.fillStyle = '#0b0f17';
+    // 1. Rebaixo da baia no chassi metálico (Poço rebaixado escuro)
+    ctx.fillStyle = '#080c12';
     ctx.beginPath();
     ctx.roundRect(bx - 2, by - 2, buttonSize + 4, buttonSize + 4, radius + 2);
     ctx.fill();
-    ctx.strokeStyle = '#334155';
+    ctx.strokeStyle = '#273444';
     ctx.lineWidth = 1;
     ctx.stroke();
 
     if (!isOccupied) {
-      // Baia Livre / Standby: contorno pontilhado suave e ponto de espera
-      ctx.strokeStyle = '#47556966';
+      // Baia Livre / Standby: contorno pontilhado suave
+      ctx.strokeStyle = 'rgba(71, 85, 105, 0.45)';
       ctx.lineWidth = 1.2;
       ctx.setLineDash([3, 3]);
       ctx.beginPath();
@@ -1189,16 +1555,16 @@ function drawDockConsole(
       ctx.stroke();
       ctx.setLineDash([]);
 
-      ctx.fillStyle = '#33415544';
+      ctx.fillStyle = 'rgba(51, 65, 85, 0.35)';
       ctx.beginPath();
       ctx.arc(dock.x, dock.y, 2.5, 0, Math.PI * 2);
       ctx.fill();
     } else if (box && colorDef) {
-      // 2. Baia Ocupada: Botão Elevado 3D com a Cor da Caixa (Estilo da Referência)
+      // 2. Baia Ocupada: Botão Elevado Tátil 3D com a Cor da Caixa (Referência Exata)
       // Sombra projetada do botão
       ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
       ctx.beginPath();
-      ctx.roundRect(bx, by + 3, buttonSize, buttonSize, radius);
+      ctx.roundRect(bx, by + 3.5, buttonSize, buttonSize, radius);
       ctx.fill();
 
       // Corpo principal do botão da cor da caixa
@@ -1207,43 +1573,25 @@ function drawDockConsole(
       ctx.roundRect(bx, by, buttonSize, buttonSize, radius);
       ctx.fill();
 
-      // Chanfro e gradiente de volume superior do botão
+      // Gradiente de chanfro de relevo superior do botão
       const btnGrad = ctx.createLinearGradient(bx, by, bx, by + buttonSize);
       btnGrad.addColorStop(0, 'rgba(255, 255, 255, 0.42)');
-      btnGrad.addColorStop(0.35, 'rgba(255, 255, 255, 0.08)');
+      btnGrad.addColorStop(0.4, 'rgba(255, 255, 255, 0.08)');
       btnGrad.addColorStop(1, 'rgba(0, 0, 0, 0.28)');
       ctx.fillStyle = btnGrad;
       ctx.beginPath();
       ctx.roundRect(bx, by, buttonSize, buttonSize, radius);
       ctx.fill();
 
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.lineWidth = 1.4;
       ctx.stroke();
 
-      // 3. Miniatura de Caixa 3D Isométrica no Topo do Botão (com fita adesiva)
-      const iconSize = Math.max(10, Math.floor(buttonSize * 0.36));
-      const iconX = dock.x - iconSize / 2;
-      const iconY = by + Math.floor(buttonSize * 0.12);
+      // 3. Miniatura de Caixa Isométrica 3D no Topo do Botão (com faces e fita)
+      const miniBoxSize = Math.max(9, Math.floor(buttonSize * 0.30));
+      draw3DIsoMiniBox(ctx, dock.x, by + Math.floor(buttonSize * 0.24), miniBoxSize, colorDef);
 
-      // Sombra da mini-caixa no botão
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.fillRect(iconX, iconY + 1, iconSize, iconSize);
-
-      // Frente da mini-caixa
-      const miniFrontH = Math.round(iconSize * 0.35);
-      ctx.fillStyle = adjustBrightness(colorDef.hex, 0.72);
-      ctx.fillRect(iconX, iconY + iconSize - miniFrontH, iconSize, miniFrontH);
-
-      // Topo da mini-caixa
-      ctx.fillStyle = adjustBrightness(colorDef.hex, 1.15);
-      ctx.fillRect(iconX, iconY, iconSize, iconSize - miniFrontH);
-
-      // Fita adesiva na mini-caixa
-      ctx.fillStyle = 'rgba(217, 119, 6, 0.75)';
-      ctx.fillRect(iconX + Math.round(iconSize * 0.38), iconY, Math.max(2, Math.round(iconSize * 0.24)), iconSize - miniFrontH);
-
-      // 4. CONTADOR NUMÉRICO GRANDE E NÍTIDO NA BASE (Sem Letras, Sem Códigos)
+      // 4. CONTADOR NUMÉRICO GRANDE E NÍTIDO NA BASE
       const numStr = String(box.remaining);
       const scaleFactor = numStr.length >= 3 ? 0.32 : 0.42;
       const fontSize = Math.max(12, Math.min(22, Math.floor(buttonSize * scaleFactor)));
@@ -1262,7 +1610,7 @@ function drawDockConsole(
 }
 
 // ============================================================================
-// 7. Partículas e Efeito de Celebração de Vitória
+// 9. Partículas e Efeito de Celebração de Vitória
 // ============================================================================
 
 function drawParticles(ctx: CanvasRenderingContext2D, engine: ContinuousGameEngine) {
