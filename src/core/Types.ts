@@ -1,6 +1,6 @@
 /**
  * ColorCollect Core Types
- * Definições de tipos para a matriz, caixas de suprimento, grafo de dependência e solver.
+ * Definições de tipos para a matriz, caixas de suprimento, robôs organizadores e fases.
  */
 
 export interface ColorDef {
@@ -51,6 +51,8 @@ export interface LevelData {
     solutionsCount?: number;
     difficulty?: 'Muito Fácil' | 'Fácil' | 'Médio' | 'Difícil' | 'Extremo' | 'Impossível';
     optimalSequence?: string[];
+    isCustom?: boolean;
+    description?: string;
   };
 }
 
@@ -75,4 +77,64 @@ export interface SolverResult {
   bestSolution?: SolverMove[]; // Menor sequência de cliques
   statesEvaluated: number;
   executionTimeMs: number;
+}
+
+// -------------------------------------------------------------
+// Tipos do Motor de Simulação Contínua & Robôs Organizadores
+// -------------------------------------------------------------
+
+export type RobotState = 'IDLE' | 'SEEKING' | 'HARVESTING' | 'RETURNING' | 'DEPOSITING';
+
+export interface MiniBot {
+  id: string;
+  slotIndex: number;
+  colorId: string;
+  status: RobotState;
+  
+  // Posição atual no Canvas (pixels)
+  x: number;
+  y: number;
+  
+  // Alvo atual na matriz (coordenadas do grid)
+  targetGridX: number;
+  targetGridY: number;
+  
+  // Posição da doca de origem no Canvas
+  dockX: number;
+  dockY: number;
+  
+  // Bloquinho carregado
+  cargoColor: string | null;
+  
+  // Temporizadores de animação
+  actionTimer: number; // segundos no estado atual
+  progress: number;    // 0 a 1 interpolado
+  speed: number;       // pixels por segundo
+  
+  // Rotação do robô (para virar na direção do movimento)
+  angle: number;
+}
+
+export interface CanvasParticle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  color: string;
+  size: number;
+  alpha: number;
+  life: number;
+  maxLife: number;
+}
+
+export interface LevelProgress {
+  completed: boolean;
+  stars: number;
+  bestTimeSeconds?: number;
+  attempts?: number;
+}
+
+export interface GameSettings {
+  soundEnabled: boolean;
+  fastSpeed: boolean;
 }
