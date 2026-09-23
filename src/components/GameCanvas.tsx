@@ -79,7 +79,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }));
 
       // Notifica o motor das métricas espaciais para cálculo de caminhos e distâncias
-      engine.updateLayoutMetrics(dockPositions, cellSize, offsetX, offsetY);
+      engine.updateLayoutMetrics(dockPositions, cellSize, offsetX, offsetY, width, height);
 
       // 5. Desenhar Grade de Fundo Sutil
       drawGridBackdrop(ctx, offsetX, offsetY, boardPixelW, boardPixelH, gridW, gridH, cellSize);
@@ -90,13 +90,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // 7. Desenhar Docas dos 5 Slots
       drawDocks(ctx, dockPositions, engine);
 
-      // 8. Desenhar Partículas
+      // 8. Desenhar Portinha Lateral Direita (Saída Exclusiva de Todos os Robôs)
+      drawRightExitDoor(ctx, width, engine.rightDoor.y, currentTime);
+
+      // 9. Desenhar Partículas
       drawParticles(ctx, engine);
 
-      // 9. Desenhar Mini-Bots (Robôs Organizadores)
+      // 10. Desenhar Mini-Bots (Robôs Organizadores)
       drawRobots(ctx, engine, palette, cellSize);
 
-      // 10. Efeito de Celebração de Vitória
+      // 11. Efeito de Celebração de Vitória
       if (engine.status === 'WON') {
         drawVictoryConfetti(ctx, width, height, currentTime);
       }
@@ -375,4 +378,80 @@ function drawVictoryConfetti(
     ctx.fillRect(-size / 2, -size / 4, size, size / 2);
     ctx.restore();
   }
+}
+
+/**
+ * Desenha a Portinha Lateral Direita por onde todos os robôs da fábrica saem
+ */
+function drawRightExitDoor(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  exitY: number,
+  time: number
+) {
+  const doorW = 28;
+  const doorH = 58;
+  const doorX = width - doorW;
+  const doorY = exitY - doorH / 2;
+
+  ctx.save();
+
+  // 1. Moldura metálica externa da porta com chanfro
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = '#475569';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(doorX, doorY - 10, doorW + 4, doorH + 20, [8, 0, 0, 8]);
+  ctx.fill();
+  ctx.stroke();
+
+  // 2. Abertura do portal / interior escuro onde os robôs entram
+  const innerGrad = ctx.createLinearGradient(doorX + 4, doorY, doorX + doorW, doorY);
+  innerGrad.addColorStop(0, '#090d16');
+  innerGrad.addColorStop(1, '#020617');
+  ctx.fillStyle = innerGrad;
+  ctx.beginPath();
+  ctx.roundRect(doorX + 4, doorY, doorW, doorH, [6, 0, 0, 6]);
+  ctx.fill();
+  ctx.strokeStyle = '#06b6d4'; // Brilho neon ciano
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // 3. Faixas zebradas de aviso (amarelo e preto) no piso da soleira
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(doorX + 4, doorY + doorH - 6, doorW - 4, 6);
+  ctx.clip();
+  for (let s = 0; s < 6; s++) {
+    ctx.fillStyle = s % 2 === 0 ? '#eab308' : '#1e293b';
+    ctx.fillRect(doorX + s * 6, doorY + doorH - 6, 6, 6);
+  }
+  ctx.restore();
+
+  // 4. Painel superior com LED pulsante
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(doorX + 2, doorY - 10, doorW, 9);
+
+  // LED verde esmeralda no topo indicando porta aberta e ativa
+  const pulse = (Math.sin(time * 0.005) + 1) / 2;
+  ctx.fillStyle = '#10b981';
+  ctx.shadowColor = '#10b981';
+  ctx.shadowBlur = 4 + pulse * 6;
+  ctx.beginPath();
+  ctx.arc(doorX + doorW / 2, doorY - 5, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // 5. Seta animada neon "▶" apontando para dentro da porta
+  const arrowPulse = (time * 0.004) % 1;
+  const arrowX = doorX + 8 + arrowPulse * 6;
+  ctx.fillStyle = '#22d3ee';
+  ctx.beginPath();
+  ctx.moveTo(arrowX, exitY - 6);
+  ctx.lineTo(arrowX + 7, exitY);
+  ctx.lineTo(arrowX, exitY + 6);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
 }

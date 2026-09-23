@@ -9,6 +9,7 @@ import {
 import { EdgeDetector } from './EdgeDetector';
 import { DistanceMatrix } from './DistanceMatrix';
 import { SoundManager } from './SoundManager';
+import { Pathfinder, GridPoint } from './Pathfinder';
 
 export type GameStatus = 'PLAYING' | 'WON' | 'LOST';
 
@@ -34,14 +35,25 @@ export class ContinuousGameEngine {
   // Tabela de distâncias pré-calculada para seleção de alvo
   public distanceMatrix: DistanceMatrix;
 
-  // Células atualmente reservadas por robôs em trânsito
+  // Células atualmente reservadas por robôs a caminho
   private reservedCells = new Set<string>();
 
-  // Coordenadas mundiais das docas dos 5 slots (calculadas pelo Canvas)
+  // Coordenadas mundiais das docas dos 5 slots
   private dockPositions: { x: number; y: number }[] = [];
 
+  // Coordenadas da porta lateral direita de saída
+  public rightDoor = {
+    x: 390,
+    y: 200,
+    width: 24,
+    height: 54,
+  };
+
+  // Cooldown de spawn por slot para manter robôs em fila ritmada
+  private spawnCooldowns: number[] = [0, 0, 0, 0, 0];
+
   // Dimensões do grid e do canvas
-  private gridBounds = {
+  public gridBounds = {
     cellPixelSize: 32,
     offsetX: 0,
     offsetY: 0,
@@ -49,6 +61,7 @@ export class ContinuousGameEngine {
 
   private listeners: ContinuousEngineListener = {};
   public elapsedSeconds: number = 0;
+  private botCounter = 1;
 
   constructor(level: LevelData, listener?: ContinuousEngineListener) {
     this.level = level;
@@ -77,36 +90,50 @@ export class ContinuousGameEngine {
     this.totalInitialBlocks = EdgeDetector.countRemainingBlocks(this.grid);
     this.distanceMatrix = new DistanceMatrix(level.width, level.height);
 
-    // Inicializa posições padrão para os 5 slots
     this.dockPositions = Array.from({ length: 5 }, (_, i) => ({
-      x: 100 + i * 80,
-      y: 400,
+      x: 60 + i * 70,
+      y: 420,
     }));
   }
 
   /**
-   * Atualiza as coordenadas visuais das docas e do grid calculadas pelo Canvas
+   * Atualiza as coordenadas visuais das docas, portas e do grid calculadas pelo Canvas
    */
   public updateLayoutMetrics(
     docks: { x: number; y: number }[],
     cellPixelSize: number,
     offsetX: number,
-    offsetY: number
+    offsetY: number,
+    canvasWidth: number,
+    canvasHeight: number
   ) {
     this.dockPositions = docks;
     this.gridBounds.cellPixelSize = cellPixelSize;
     this.gridBounds.offsetX = offsetX;
     this.gridBounds.offsetY = offsetY;
+
+    this.rightDoor.x = canvasWidth - 14;
+    this.rightDoor.y = offsetY + (this.level.height * cellPixelSize) / 2;
   }
 
   /**
-   * Converte coordenadas do grid (gx, gy) para coordenadas em pixels no Canvas
+   * Converte coordenadas lógicas do grid (gx, gy) para pixels no Canvas
    */
   public gridToWorld(gx: number, gy: number): { x: number; y: number } {
     return {
       x: this.gridBounds.offsetX + gx * this.gridBounds.cellPixelSize + this.gridBounds.cellPixelSize / 2,
       y: this.gridBounds.offsetY + gy * this.gridBounds.cellPixelSize + this.gridBounds.cellPixelSize / 2,
     };
+  }
+
+  /**
+   * Mapeia a doca do slot K para coordenadas lógicas de grade
+   */
+  public getDockGridPos(slotIndex: number): GridPoint {
+    const normX = slotIndex / 4; // 0 a 1
+    const gx = Math.round(normX * (this.level.width - 1));
+    const gy = this.level.height; // Logo abaixo da matriz
+    return { x: gx, y: gy };
   }
 
   /**
@@ -132,115 +159,173 @@ export class ContinuousGameEngine {
     freeSlot.box = box;
     SoundManager.playClick();
 
-    // Cria o Mini-Bot deste slot caso ainda não exista
-    const dock = this.dockPositions[freeSlot.index] || { x: 200, y: 400 };
-    const bot: MiniBot = {
-      id: `bot_slot_${freeSlot.index}`,
-      slotIndex: freeSlot.index,
-      colorId: box.colorId,
-      status: 'IDLE',
-      x: dock.x,
-      y: dock.y,
-      targetGridX: -1,
-      targetGridY: -1,
-      dockX: dock.x,
-      dockY: dock.y,
-      cargoColor: null,
-      actionTimer: 0,
-      progress: 0,
-      speed: 380, // pixels por segundo
-      angle: -Math.PI / 2,
-    };
-
-    // Remove qualquer robô antigo desse slot e adiciona o novo
-    this.robots = this.robots.filter((r) => r.slotIndex !== freeSlot.index);
-    this.robots.push(bot);
-
     this.notifySupply();
     this.notifyBuffer();
     return true;
   }
 
   /**
-   * Loop de simulação em tempo real (chamado a cada frame com delta time dt em segundos)
+   * Loop de simulação em tempo real (60 FPS)
    */
   public update(dt: number): void {
     if (this.status !== 'PLAYING') return;
 
     this.elapsedSeconds += dt;
 
+    // Atualiza cooldown de spawn por slot
+    for (let i = 0; i < this.spawnCooldowns.length; i++) {
+      if (this.spawnCooldowns[i] > 0) {
+        this.spawnCooldowns[i] -= dt;
+      }
+    }
+
     // 1. Atualizar partículas
     this.updateParticles(dt);
 
-    // 2. Atualizar cada robô ativo
+    // 2. Despachar robôs (Enxame contínuo: se caixa tem 10, solta 10 robôs conforme blocos disponíveis)
+    this.spawnSwarmRobots();
+
+    // 3. Atualizar cada robô ativo em movimento ortogonal
+    this.updateRobots(dt);
+
+    // 4. Checar Condições de Fim de Jogo
+    this.checkGameCompletion();
+  }
+
+  /**
+   * Despacha robôs a partir de cada doca ativa, até o limite de capacidade da caixa
+   */
+  private spawnSwarmRobots() {
+    for (const slot of this.bufferSlots) {
+      const box = slot.box;
+      if (!box || box.remaining <= 0) continue;
+
+      // Conta quantos robôs já estão operando para esta caixa
+      const activeBots = this.robots.filter((r) => r.slotIndex === slot.index);
+      const unspawnedNeeded = box.remaining - activeBots.length;
+
+      // Se ainda precisamos de robôs e o cooldown permitiu
+      if (unspawnedNeeded > 0 && this.spawnCooldowns[slot.index] <= 0) {
+        // Encontra blocos expostos da cor desta caixa que não estão reservados
+        const exposedCells = EdgeDetector.getExposedCells(this.grid, box.colorId);
+        const availableTargets = exposedCells.filter(
+          (c) => !this.reservedCells.has(`${c.x},${c.y}`)
+        );
+
+        if (availableTargets.length === 0) continue;
+
+        // Posição de largada da doca em coordenadas de grade
+        const dockPos = this.getDockGridPos(slot.index);
+        const dockWorld = this.dockPositions[slot.index] || { x: 100, y: 400 };
+
+        // Testa quais alvos possuem rota ortogonal transitável até eles
+        const validCandidates: { cell: { x: number; y: number }; path: GridPoint[] }[] = [];
+
+        for (const candidate of availableTargets) {
+          const path = Pathfinder.findPathToBlockFace(
+            dockPos.x,
+            dockPos.y,
+            candidate.x,
+            candidate.y,
+            this.grid,
+            this.level.width,
+            this.level.height
+          );
+
+          if (path && path.length > 0) {
+            validCandidates.push({ cell: candidate, path });
+          }
+        }
+
+        if (validCandidates.length > 0) {
+          // Seleciona o candidato mais próximo deste slot (Distância Pré-calculada)
+          const bestCandidate = this.distanceMatrix.getClosestExposedTarget(
+            slot.index,
+            validCandidates.map((v) => v.cell)
+          );
+
+          if (bestCandidate) {
+            const chosen = validCandidates.find(
+              (v) => v.cell.x === bestCandidate.x && v.cell.y === bestCandidate.y
+            )!;
+
+            // Reserva o bloco alvo
+            this.reservedCells.add(`${bestCandidate.x},${bestCandidate.y}`);
+
+            // Converte os pontos da rota ortogonal em pixels de canvas
+            const worldWaypoints = chosen.path.map((p) => this.gridToWorld(p.x, p.y));
+
+            const bot: MiniBot = {
+              id: `bot_${this.botCounter++}`,
+              slotIndex: slot.index,
+              colorId: box.colorId,
+              status: 'SEEKING',
+              x: dockWorld.x,
+              y: dockWorld.y,
+              currentGridX: dockPos.x,
+              currentGridY: dockPos.y,
+              targetGridX: bestCandidate.x,
+              targetGridY: bestCandidate.y,
+              dockX: dockWorld.x,
+              dockY: dockWorld.y,
+              cargoColor: null,
+              waypoints: worldWaypoints,
+              waypointIndex: 0,
+              actionTimer: 0,
+              speed: 260, // Velocidade rápida e fluida de marcha ortogonal
+              angle: -Math.PI / 2,
+            };
+
+            this.robots.push(bot);
+            // Intervalo de 90ms entre spawns para criar uma fila/comboio visualmente organizado
+            this.spawnCooldowns[slot.index] = 0.09;
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Atualiza a física e a navegação ortogonal dos robôs
+   */
+  private updateRobots(dt: number) {
     let gridDirty = false;
     let bufferDirty = false;
 
-    for (const bot of this.robots) {
+    for (let i = this.robots.length - 1; i >= 0; i--) {
+      const bot = this.robots[i];
       const slot = this.bufferSlots[bot.slotIndex];
       const box = slot?.box;
 
-      // Se a caixa foi removida ou esgotou, o robô retorna e desativa
-      if (!box || box.remaining <= 0) {
-        if (bot.cargoColor) {
-          // Descarrega o que sobrou
-          bot.cargoColor = null;
-        }
-        bot.status = 'IDLE';
-        continue;
-      }
-
-      // Atualiza coordenadas da doca
-      const dock = this.dockPositions[bot.slotIndex];
-      if (dock) {
-        bot.dockX = dock.x;
-        bot.dockY = dock.y;
-      }
-
       switch (bot.status) {
-        case 'IDLE': {
-          // Busca alvo mais próximo do seu slot usando a DistanceMatrix
-          const exposedCells = EdgeDetector.getExposedCells(this.grid, box.colorId);
-          // Filtra alvos que já estão reservados por outro robô
-          const availableTargets = exposedCells.filter(
-            (c) => !this.reservedCells.has(`${c.x},${c.y}`)
-          );
-
-          if (availableTargets.length > 0) {
-            // Seleção de Alvo por Proximidade do Slot!
-            const target = this.distanceMatrix.getClosestExposedTarget(
-              bot.slotIndex,
-              availableTargets
-            );
-
-            if (target) {
-              bot.targetGridX = target.x;
-              bot.targetGridY = target.y;
-              this.reservedCells.add(`${target.x},${target.y}`);
-              bot.status = 'SEEKING';
-            }
-          }
-          break;
-        }
-
         case 'SEEKING': {
-          // Move em direção ao bloco alvo
-          const targetWorld = this.gridToWorld(bot.targetGridX, bot.targetGridY);
-          const dx = targetWorld.x - bot.x;
-          const dy = targetWorld.y - bot.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
+          // Segue os waypoints ortogonais até o bloco alvo
+          if (bot.waypointIndex < bot.waypoints.length) {
+            const wp = bot.waypoints[bot.waypointIndex];
+            const dx = wp.x - bot.x;
+            const dy = wp.y - bot.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
 
-          bot.angle = Math.atan2(dy, dx);
+            // Ajusta o ângulo estritamente em eixos ortogonais (90 graus)
+            if (Math.abs(dx) > Math.abs(dy)) {
+              bot.angle = dx > 0 ? 0 : Math.PI;
+            } else {
+              bot.angle = dy > 0 ? Math.PI / 2 : -Math.PI / 2;
+            }
 
-          const step = bot.speed * dt;
-          if (dist <= step || dist < 4) {
-            bot.x = targetWorld.x;
-            bot.y = targetWorld.y;
-            bot.status = 'HARVESTING';
-            bot.actionTimer = 0.08; // Pequeno delay satisfatório de mastigação/pop
+            const step = bot.speed * dt;
+            if (dist <= step || dist < 3) {
+              bot.x = wp.x;
+              bot.y = wp.y;
+              bot.waypointIndex++;
+            } else {
+              bot.x += (dx / dist) * step;
+              bot.y += (dy / dist) * step;
+            }
           } else {
-            bot.x += (dx / dist) * step;
-            bot.y += (dy / dist) * step;
+            // Chegou à face livre do bloco! Inicia coleta
+            bot.status = 'HARVESTING';
+            bot.actionTimer = 0.08; // Pop satisfatório
           }
           break;
         }
@@ -248,69 +333,98 @@ export class ContinuousGameEngine {
         case 'HARVESTING': {
           bot.actionTimer -= dt;
           if (bot.actionTimer <= 0) {
-            // Remove o bloco do tabuleiro
             const targetColor = this.grid[bot.targetGridY]?.[bot.targetGridX];
             if (targetColor) {
+              // 1. Remove o bloco do tabuleiro (agora a célula vira null e fica transitável!)
               this.grid[bot.targetGridY][bot.targetGridX] = null;
               this.reservedCells.delete(`${bot.targetGridX},${bot.targetGridY}`);
 
-              // Efeitos de coleta
+              // 2. Decrementa a caixa do slot
+              if (box) {
+                box.remaining = Math.max(0, box.remaining - 1);
+                bufferDirty = true;
+              }
+              this.totalCollectedBlocks++;
+
+              // 3. Efeitos de colheita
               const targetWorld = this.gridToWorld(bot.targetGridX, bot.targetGridY);
               this.spawnBlockParticles(targetWorld.x, targetWorld.y, targetColor);
-              SoundManager.playHarvest(1 + (box.totalCapacity - box.remaining) * 0.03);
+              SoundManager.playHarvest(1 + (this.totalCollectedBlocks % 15) * 0.04);
 
               bot.cargoColor = targetColor;
-              bot.status = 'RETURNING';
+              bot.currentGridX = bot.targetGridX;
+              bot.currentGridY = bot.targetGridY;
+
+              // 4. Calcula rota ortogonal até a PORTINHA LATERAL mais próxima!
+              const exitPath = Pathfinder.findPathToSideExit(
+                bot.currentGridX,
+                bot.currentGridY,
+                this.grid,
+                this.level.width,
+                this.level.height
+              );
+
+              // Converte caminho até a porta lateral direita em coordenadas do Canvas
+              const exitWaypoints = exitPath.map((p) => {
+                if (p.x >= this.level.width) return { x: this.rightDoor.x, y: this.rightDoor.y };
+                return this.gridToWorld(p.x, p.y);
+              });
+
+              // Ponto final de penetração na porta para o robô sair da tela
+              exitWaypoints.push({ x: this.rightDoor.x + 8, y: this.rightDoor.y });
+
+              bot.waypoints = exitWaypoints;
+              bot.waypointIndex = 0;
+              bot.status = 'EXITING';
               gridDirty = true;
             } else {
-              // Bloco já sumiu por alguma razão, volta para idle
+              // Bloco já sumiu, libera
               this.reservedCells.delete(`${bot.targetGridX},${bot.targetGridY}`);
-              bot.status = 'IDLE';
+              this.robots.splice(i, 1);
             }
           }
           break;
         }
 
-        case 'RETURNING': {
-          // Move de volta para a sua doca
-          const dx = bot.dockX - bot.x;
-          const dy = bot.dockY - bot.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
+        case 'EXITING': {
+          // Segue rota ortogonal até sair pela portinha lateral
+          if (bot.waypointIndex < bot.waypoints.length) {
+            const wp = bot.waypoints[bot.waypointIndex];
+            const dx = wp.x - bot.x;
+            const dy = wp.y - bot.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
 
-          bot.angle = Math.atan2(dy, dx);
-
-          const step = bot.speed * dt;
-          if (dist <= step || dist < 4) {
-            bot.x = bot.dockX;
-            bot.y = bot.dockY;
-            bot.status = 'DEPOSITING';
-            bot.actionTimer = 0.05;
-          } else {
-            bot.x += (dx / dist) * step;
-            bot.y += (dy / dist) * step;
-          }
-          break;
-        }
-
-        case 'DEPOSITING': {
-          bot.actionTimer -= dt;
-          if (bot.actionTimer <= 0) {
-            bot.cargoColor = null;
-            box.remaining = Math.max(0, box.remaining - 1);
-            this.totalCollectedBlocks++;
-            SoundManager.playDeposit();
-            bufferDirty = true;
-
-            // Caixa zerada: completou a tarefa!
-            if (box.remaining === 0) {
-              SoundManager.playBoxComplete();
-              slot.box = null;
-              bot.status = 'IDLE';
-
-              // Remove o robô da lista
-              this.robots = this.robots.filter((r) => r.slotIndex !== bot.slotIndex);
+            if (Math.abs(dx) > Math.abs(dy)) {
+              bot.angle = dx > 0 ? 0 : Math.PI;
             } else {
-              bot.status = 'IDLE';
+              bot.angle = dy > 0 ? Math.PI / 2 : -Math.PI / 2;
+            }
+
+            const step = bot.speed * dt;
+            if (dist <= step || dist < 3) {
+              bot.x = wp.x;
+              bot.y = wp.y;
+              bot.waypointIndex++;
+            } else {
+              bot.x += (dx / dist) * step;
+              bot.y += (dy / dist) * step;
+            }
+          } else {
+            // Saiu pela portinha lateral!
+            SoundManager.playDeposit();
+            this.spawnExitDoorParticles(bot.x, bot.y, bot.cargoColor || '#ffffff');
+
+            // Remove o robô que concluiu sua entrega
+            this.robots.splice(i, 1);
+
+            // Se a caixa zerou e não há mais robôs desse slot na tela, libera a doca!
+            if (box && box.remaining === 0) {
+              const remainingBotsForSlot = this.robots.filter((r) => r.slotIndex === bot.slotIndex);
+              if (remainingBotsForSlot.length === 0) {
+                SoundManager.playBoxComplete();
+                slot.box = null;
+                bufferDirty = true;
+              }
             }
           }
           break;
@@ -320,9 +434,6 @@ export class ContinuousGameEngine {
 
     if (gridDirty) this.notifyGrid();
     if (bufferDirty) this.notifyBuffer();
-
-    // 3. Checar Condições de Fim de Jogo
-    this.checkGameCompletion();
   }
 
   private updateParticles(dt: number) {
@@ -341,29 +452,45 @@ export class ContinuousGameEngine {
   private spawnBlockParticles(x: number, y: number, colorId: string) {
     const colorDef = this.level.palette[colorId];
     const hex = colorDef ? colorDef.hex : '#ffffff';
-    const count = 12;
+    const count = 10;
 
     for (let i = 0; i < count; i++) {
       const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5);
-      const speed = 40 + Math.random() * 90;
+      const speed = 40 + Math.random() * 80;
       this.particles.push({
         x,
         y,
         vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 20, // leve empurrão para cima
+        vy: Math.sin(angle) * speed - 15,
         color: hex,
-        size: 3 + Math.random() * 4,
+        size: 3 + Math.random() * 3,
         alpha: 1,
-        life: 0.35 + Math.random() * 0.25,
-        maxLife: 0.6,
+        life: 0.3 + Math.random() * 0.2,
+        maxLife: 0.5,
+      });
+    }
+  }
+
+  private spawnExitDoorParticles(x: number, y: number, colorHex: string) {
+    for (let i = 0; i < 6; i++) {
+      this.particles.push({
+        x,
+        y,
+        vx: (Math.random() - 0.5) * 40,
+        vy: -20 - Math.random() * 30,
+        color: colorHex,
+        size: 2.5,
+        alpha: 1,
+        life: 0.25,
+        maxLife: 0.25,
       });
     }
   }
 
   private checkGameCompletion() {
-    // Vitória: Todos os blocos coletados
+    // Vitória: Todos os blocos coletados e nenhum robô com carga pendente
     const remaining = EdgeDetector.countRemainingBlocks(this.grid);
-    if (remaining === 0 && this.robots.every((r) => !r.cargoColor)) {
+    if (remaining === 0 && this.robots.length === 0) {
       this.status = 'WON';
       SoundManager.playVictory();
       this.notifyStatus();
@@ -371,9 +498,9 @@ export class ContinuousGameEngine {
     }
 
     // Derrota (Deadlock):
-    // 5 slots ocupados, nenhum robô tem alvo e nenhum robô está em trânsito com carga
+    // 5 slots ocupados, nenhum robô em trânsito e nenhuma das 5 caixas tem alvos expostos
     const emptySlots = this.bufferSlots.filter((s) => s.box === null);
-    if (emptySlots.length === 0) {
+    if (emptySlots.length === 0 && this.robots.length === 0) {
       let anyCanCollect = false;
       for (const slot of this.bufferSlots) {
         if (slot.box && slot.box.remaining > 0) {
@@ -385,9 +512,7 @@ export class ContinuousGameEngine {
         }
       }
 
-      // Se nenhum slot consegue coletar e nenhum robô está carregando bloco
-      const anyCarrying = this.robots.some((r) => r.cargoColor !== null);
-      if (!anyCanCollect && !anyCarrying) {
+      if (!anyCanCollect) {
         this.status = 'LOST';
         SoundManager.playGameOver();
         this.notifyStatus();
@@ -405,6 +530,7 @@ export class ContinuousGameEngine {
     this.reservedCells.clear();
     this.particles = [];
     this.robots = [];
+    this.spawnCooldowns = [0, 0, 0, 0, 0];
 
     this.grid = this.level.initialGrid.map((row) => [...row]);
     this.bufferSlots = Array.from({ length: this.level.bufferSize }, (_, index) => ({

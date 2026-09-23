@@ -83,7 +83,7 @@ export interface SolverResult {
 // Tipos do Motor de Simulação Contínua & Robôs Organizadores
 // -------------------------------------------------------------
 
-export type RobotState = 'IDLE' | 'SEEKING' | 'HARVESTING' | 'RETURNING' | 'DEPOSITING';
+export type RobotState = 'SEEKING' | 'HARVESTING' | 'EXITING';
 
 export interface MiniBot {
   id: string;
@@ -95,6 +95,10 @@ export interface MiniBot {
   x: number;
   y: number;
   
+  // Posição lógica na grade (para pathfinding ortogonal)
+  currentGridX: number;
+  currentGridY: number;
+
   // Alvo atual na matriz (coordenadas do grid)
   targetGridX: number;
   targetGridY: number;
@@ -106,12 +110,15 @@ export interface MiniBot {
   // Bloquinho carregado
   cargoColor: string | null;
   
+  // Rota ortogonal sendo percorrida (em pixels do canvas)
+  waypoints: { x: number; y: number }[];
+  waypointIndex: number;
+
   // Temporizadores de animação
   actionTimer: number; // segundos no estado atual
-  progress: number;    // 0 a 1 interpolado
   speed: number;       // pixels por segundo
   
-  // Rotação do robô (para virar na direção do movimento)
+  // Rotação do robô (para virar na direção ortogonal do movimento)
   angle: number;
 }
 
