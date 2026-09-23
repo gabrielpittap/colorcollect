@@ -1359,36 +1359,37 @@ function drawAGVRobot(
     ctx.fillRect(bx + botRadius * 0.12, by + bodyH / 2 - 3, botRadius * 0.2, 2);
   }
 
-  // G. Cúpula / Sinalizador Superior Iluminado (Squircle Âmbar na Cabine)
+  // G. Cúpula / Sinalizador Superior Iluminado (Cor dinâmica da caixa que o robô está buscando)
   const domeSize = Math.max(5.5, Math.round(botRadius * 0.48));
   const domeX = Math.round(bx - domeSize / 2);
   const domeY = Math.round(by - domeSize / 2 - (isMovingDown ? 2.5 : 1));
   const pulse = (Math.sin(time * 0.0075) + 1) / 2;
+  const beaconColorHex = targetColorDef?.hex || '#f59e0b';
 
-  // Brilho quente suave contido
+  // Brilho suave contido na cor do alvo que o robô está buscando/transportando
   const beaconGlow = ctx.createRadialGradient(bx, domeY + domeSize / 2, 1, bx, domeY + domeSize / 2, domeSize * 1.4);
-  beaconGlow.addColorStop(0, 'rgba(251, 191, 36, 0.85)');
-  beaconGlow.addColorStop(0.5, `rgba(245, 158, 11, ${0.35 + pulse * 0.30})`);
-  beaconGlow.addColorStop(1, 'rgba(217, 119, 6, 0)');
+  beaconGlow.addColorStop(0, hexToRgba(beaconColorHex, 0.85));
+  beaconGlow.addColorStop(0.5, hexToRgba(beaconColorHex, 0.35 + pulse * 0.30));
+  beaconGlow.addColorStop(1, hexToRgba(beaconColorHex, 0));
   ctx.fillStyle = beaconGlow;
   ctx.beginPath();
   ctx.arc(bx, domeY + domeSize / 2, domeSize * 1.4, 0, Math.PI * 2);
   ctx.fill();
 
-  // Moldura metálica da almofada do teto
-  ctx.fillStyle = '#64748b';
+  // Moldura metálica da almofada do teto (mantém alto contraste mesmo para cores claras/brancas)
+  ctx.fillStyle = '#334155';
   ctx.beginPath();
   ctx.roundRect(domeX - 0.8, domeY - 0.8, domeSize + 1.6, domeSize + 1.6, 2.5);
   ctx.fill();
 
-  // Almofada âmbar iluminada
-  ctx.fillStyle = '#f59e0b';
+  // Almofada iluminada na cor que o robô está buscando
+  ctx.fillStyle = beaconColorHex;
   ctx.beginPath();
   ctx.roundRect(domeX, domeY, domeSize, domeSize, 2);
   ctx.fill();
 
-  // Ponto central de reflexo
-  ctx.fillStyle = '#fef08a';
+  // Ponto central de reflexo especular vítreo superior
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
   ctx.fillRect(domeX + 1, domeY + 1, domeSize * 0.35, domeSize * 0.35);
 
   // H. Carga nos Garfos Frontais (quando indo para Direita, Esquerda ou Baixo)
