@@ -1,36 +1,37 @@
 import { BoardGrid, LevelData } from './Types';
 import { DEFAULT_PALETTE } from './Colors';
-import { DependencyGraph } from './DependencyGraph';
 import { LevelSolver } from './LevelSolver';
+import { EdgeDetector } from './EdgeDetector';
 
 export interface GeneratorOptions {
   name?: string;
   numColumns?: number; // Padrão: 4 colunas
-  minBoxCapacity?: number; // Padrão: 15
+  minBoxCapacity?: number; // Padrão: 2
   maxBoxCapacity?: number; // Padrão: 35
   bufferSize?: number; // Padrão: 5
-  targetDifficulty?: 'Fácil' | 'Médio' | 'Difícil';
+  targetDifficulty?: 'Muito Fácil' | 'Fácil' | 'Médio' | 'Difícil' | 'Extremo';
+  onProgress?: (status: string, percent: number) => void;
 }
 
 /**
- * Gerador Determinístico de Fases.
- * Converte qualquer matriz de imagem/pixel art em uma fase balanceada,
- * fatiando as contagens de cores em caixas e distribuindo-as em colunas
- * com garantia matemática de solução viável.
+ * Gerador Dinâmico de Fases.
+ * Converte matrizes em fases desafiadoras, usando "Dynamic Peeling" (The Golden Path) 
+ * e "Controlled Deep Insertion" para garantir que as caixas fiquem
+ * misturadas nas colunas, exigindo que o jogador utilize o buffer de forma estratégica.
  */
 export class LevelGenerator {
-  /**
-   * Gera uma fase completa e validada a partir de uma matriz.
-   */
-  static generateLevel(
+  static async generateLevel(
     grid: BoardGrid,
     options: GeneratorOptions = {}
-  ): { level: LevelData; solutionsCount: number; difficulty: string } {
+  ): Promise<{ level: LevelData; solutionsCount: number; difficulty: string }> {
     const name = options.name || 'Nova Fase';
     const numColumns = options.numColumns || 4;
-    const minCap = options.minBoxCapacity || 12;
+    const minCap = options.minBoxCapacity || 2;
     const maxCap = options.maxBoxCapacity || 35;
     const bufferSize = options.bufferSize || 5;
+    const onProgress = options.onProgress || (() => {});
+
+    onProgress("Iniciando varredura da imagem...", 5);
 
     const height = grid.length;
     const width = grid[0]?.length || 0;
@@ -49,131 +50,136 @@ export class LevelGenerator {
       }
     }
 
-    // 2. Fatiamento em caixas (Supply Boxes)
+    // Passo 1: Dynamic Peeling (The Golden Path)
     interface UnplacedBox {
       colorId: string;
       capacity: number;
     }
-    const allBoxes: UnplacedBox[] = [];
-
-    for (const [colorId, total] of Object.entries(colorCounts)) {
-      let remaining = total;
-      while (remaining > 0) {
-        if (remaining <= maxCap) {
-          allBoxes.push({ colorId, capacity: remaining });
-          remaining = 0;
-        } else {
-          // Fatias entre minCap e maxCap
-          const cap = Math.min(
-            maxCap,
-            Math.max(minCap, Math.floor(remaining / 2))
-          );
-          allBoxes.push({ colorId, capacity: cap });
-          remaining -= cap;
+    const playSequence: UnplacedBox[] = [];
+    
+    let peelGrid = grid.map((row) => [...row]);
+    let blocksLeft = totalBlocks;
+    let safeLoopGuard = 0;
+    
+    while (blocksLeft > 0 && safeLoopGuard < 10000) {
+      safeLoopGuard++;
+      
+      // Permitir renderização no navegador a cada 10 ciclos
+      if (safeLoopGuard % 10 === 0) {
+        const pct = 5 + Math.floor(((totalBlocks - blocksLeft) / totalBlocks) * 45);
+        onProgress(`Calculando caminho dourado: ${totalBlocks - blocksLeft} de ${totalBlocks}...`, pct);
+        await new Promise(r => setTimeout(r, 0));
+      }
+      
+      const exposedCounts = EdgeDetector.getExposedCounts(peelGrid);
+      const exposedColors = Object.keys(exposedCounts);
+      
+      if (exposedColors.length === 0) {
+        console.warn("Deadlock durante o peeling! O grid não pode ser completamente desmontado.");
+        break;
+      }
+      
+      // Escolher uma cor aleatória exposta
+      const colorId = exposedColors[Math.floor(Math.random() * exposedColors.length)];
+      
+      // Contar quantos blocos dessa cor ainda existem no peelGrid (limite máximo para K)
+      let remainingOfColor = 0;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (peelGrid[y][x] === colorId) remainingOfColor++;
         }
+      }
+      
+      // Escolher capacidade K aleatória
+      let cap: number;
+      const rand = Math.random();
+      if (rand < 0.25) {
+        cap = Math.floor(Math.random() * 4) + 2; // 2 a 5
+      } else if (rand < 0.70) {
+        cap = Math.floor(Math.random() * 10) + 6; // 6 a 15
+      } else {
+        cap = Math.floor(Math.random() * 20) + 16; // 16 a 35
+      }
+      
+      cap = Math.max(minCap, Math.min(cap, remainingOfColor, maxCap));
+      
+      // Consumir até K blocos
+      const { newGrid, removedCount } = EdgeDetector.consumeBlocks(peelGrid, colorId, cap);
+      peelGrid = newGrid;
+      
+      if (removedCount > 0) {
+        playSequence.push({ colorId, capacity: removedCount });
+        blocksLeft -= removedCount;
       }
     }
 
-    // 3. Análise de camadas de dependência (quais cores estão na borda externa)
-    const layerAnalysis = DependencyGraph.analyzeColorLayers(grid);
-    const colorLayerMap: Record<string, number> = {};
-    for (const item of layerAnalysis) {
-      colorLayerMap[item.colorId] = item.minLayer;
-    }
+    const targetDifficulty = options.targetDifficulty || 'Médio';
+    const difficultyDepth: Record<string, number> = {
+      'Muito Fácil': 0,
+      'Fácil': 1,
+      'Médio': 2,
+      'Difícil': 3,
+      'Extremo': 4,
+    };
+    const D = difficultyDepth[targetDifficulty] ?? 2;
 
-    // Ordena as caixas com base nas camadas:
-    // Camada 0 (bordas imediatas) devem aparecer nas posições superiores das colunas
-    allBoxes.sort((a, b) => {
-      const layerA = colorLayerMap[a.colorId] ?? 0;
-      const layerB = colorLayerMap[b.colorId] ?? 0;
-      return layerA - layerB;
-    });
+    // Passo 2 e 3: Controlled Deep Insertion & Solver Validation
+    let bestSupply: { colorId: string; capacity: number }[][] = Array.from(
+      { length: numColumns },
+      () => []
+    );
+    let isLevelSolvable = false;
+    let finalResult: any = null;
+    
+    // Tentamos até 10 vezes gerar uma distribuição válida
+    for (let attempt = 0; attempt < 10; attempt++) {
+      onProgress(`Embaralhando caixas para a dificuldade ${targetDifficulty} (Tentativa ${attempt+1}/10)...`, 50 + (attempt * 4));
+      await new Promise(r => setTimeout(r, 0));
 
-    // 4. Distribuição inicial em colunas (Round-robin preservando ordem de camada)
-    let bestSupply: { colorId: string; capacity: number }[][] = [];
-    let bestResult = { isSolvable: false, totalSolutions: 0, difficulty: 'Impossível' };
-
-    // Tenta até 10 variações de distribuição caso precise ajustar para atingir a solvabilidade
-    for (let attempt = 0; attempt < 12; attempt++) {
-      const columns: { colorId: string; capacity: number }[][] = Array.from(
+      const supply: { colorId: string; capacity: number }[][] = Array.from(
         { length: numColumns },
         () => []
       );
-
-      // Copia a lista de caixas
-      const boxesToDistribute = [...allBoxes];
-
-      if (attempt > 0) {
-        // Leve permutação das caixas dentro da mesma camada para encontrar caminhos alternativos
-        for (let i = 0; i < boxesToDistribute.length - 1; i++) {
-          const l1 = colorLayerMap[boxesToDistribute[i].colorId] ?? 0;
-          const l2 = colorLayerMap[boxesToDistribute[i + 1].colorId] ?? 0;
-          if (l1 === l2 && Math.random() > 0.4) {
-            const temp = boxesToDistribute[i];
-            boxesToDistribute[i] = boxesToDistribute[i + 1];
-            boxesToDistribute[i + 1] = temp;
-          }
-        }
+      
+      // Iterar DE TRÁS PARA FRENTE para criar a pilha de fornecimento
+      for (let i = playSequence.length - 1; i >= 0; i--) {
+        const box = playSequence[i];
+        const col = Math.floor(Math.random() * numColumns);
+        
+        // Inserir em uma profundidade D aleatória
+        const maxDepth = Math.min(supply[col].length, D);
+        const depth = Math.floor(Math.random() * (maxDepth + 1));
+        
+        supply[col].splice(depth, 0, box);
       }
-
-      // Preenche colunas em serpente/round-robin
-      let col = 0;
-      for (const box of boxesToDistribute) {
-        columns[col].push(box);
-        col = (col + 1) % numColumns;
-      }
-
-      // Valida com o Solver
-      const solverResult = LevelSolver.solve(grid, columns, bufferSize, 6000);
-
-      if (solverResult.isSolvable) {
-        bestSupply = columns;
-        bestResult = {
-          isSolvable: true,
-          totalSolutions: solverResult.totalSolutions,
-          difficulty: solverResult.difficulty,
-        };
-
-        // Se encontrou uma boa solução, encerra a busca
-        if (solverResult.totalSolutions >= 1) {
-          break;
-        }
-      } else if (!bestResult.isSolvable && attempt === 0) {
-        // Guarda como fallback provisório
-        bestSupply = columns;
+      
+      // Validar com o solver (otimizado com returnOnFirstSolution = true)
+      const res = LevelSolver.solve(grid, supply, bufferSize, 8000, true);
+      
+      if (res.isSolvable) {
+        isLevelSolvable = true;
+        bestSupply = supply;
+        break;
       }
     }
-
-    // Se ainda assim não encontrar solução em matrizes extremamente complexas,
-    // garante que todas as cores da camada 0 fiquem no topo das primeiras colunas
-    if (!bestResult.isSolvable) {
-      const columns: { colorId: string; capacity: number }[][] = Array.from(
-        { length: numColumns },
-        () => []
-      );
-      // Separa caixas da camada 0 para ficarem na frente absoluta
-      const layer0Boxes = allBoxes.filter(
-        (b) => (colorLayerMap[b.colorId] ?? 0) === 0
-      );
-      const innerBoxes = allBoxes.filter(
-        (b) => (colorLayerMap[b.colorId] ?? 0) > 0
-      );
-
-      const reordered = [...layer0Boxes, ...innerBoxes];
-      let col = 0;
-      for (const box of reordered) {
-        columns[col].push(box);
-        col = (col + 1) % numColumns;
+    
+    // Se ainda falhar, faz o fallback seguro
+    let generatedDifficulty = targetDifficulty;
+    if (!isLevelSolvable) {
+      bestSupply = Array.from({ length: numColumns }, () => []);
+      for (let i = playSequence.length - 1; i >= 0; i--) {
+        const box = playSequence[i];
+        const col = Math.floor(Math.random() * numColumns);
+        bestSupply[col].unshift(box);
       }
-      bestSupply = columns;
-
-      const fallbackSolver = LevelSolver.solve(grid, bestSupply, bufferSize, 6000);
-      bestResult = {
-        isSolvable: fallbackSolver.isSolvable,
-        totalSolutions: fallbackSolver.totalSolutions,
-        difficulty: fallbackSolver.difficulty,
-      };
+      generatedDifficulty = 'Muito Fácil'; // Fallback is equivalent to D=0
     }
+    
+    // Análise Final Completa do nível
+    onProgress("Calculando métricas finais da dificuldade...", 95);
+    await new Promise(r => setTimeout(r, 0));
+    finalResult = LevelSolver.solve(grid, bestSupply, bufferSize, 8000);
+    onProgress("Pronto!", 100);
 
     const levelData: LevelData = {
       id: `level_${Date.now()}`,
@@ -186,17 +192,17 @@ export class LevelGenerator {
       bufferSize,
       metadata: {
         totalBlocks,
-        totalBoxes: allBoxes.length,
+        totalBoxes: playSequence.length,
         colorCounts,
-        solutionsCount: bestResult.totalSolutions,
-        difficulty: bestResult.difficulty as LevelData['metadata']['difficulty'],
+        solutionsCount: finalResult.totalSolutions,
+        difficulty: generatedDifficulty,
       },
     };
 
     return {
       level: levelData,
-      solutionsCount: bestResult.totalSolutions,
-      difficulty: bestResult.difficulty,
+      solutionsCount: finalResult.totalSolutions,
+      difficulty: generatedDifficulty,
     };
   }
 }

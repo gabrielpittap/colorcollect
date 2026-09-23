@@ -125,16 +125,19 @@ export const PhotoPixelizerModal: React.FC<PhotoPixelizerModalProps> = ({
                   <div className="w-full h-44 rounded-xl border border-cyan-500/40 overflow-hidden bg-slate-950 flex items-center justify-center p-2">
                     {previewResult ? (
                       <div
-                        className="grid gap-0.5"
+                        className="grid"
                         style={{
+                          gap: gridSize > 25 ? '0px' : '1px',
                           gridTemplateColumns: `repeat(${gridSize}, minmax(0, 1fr))`,
+                          height: '100%',
+                          aspectRatio: '1 / 1',
                         }}
                       >
                         {previewResult.grid.map((row, y) =>
                           row.map((cell, x) => (
                             <div
                               key={`${x}-${y}`}
-                              className="w-2.5 h-2.5 rounded-[1px]"
+                              className="w-full h-full rounded-[1px]"
                               style={{
                                 backgroundColor: cell
                                   ? previewResult.palette[cell]?.hex
@@ -165,7 +168,7 @@ export const PhotoPixelizerModal: React.FC<PhotoPixelizerModalProps> = ({
                     <input
                       type="range"
                       min={10}
-                      max={20}
+                      max={40}
                       step={2}
                       value={gridSize}
                       onChange={(e) => {
@@ -185,7 +188,7 @@ export const PhotoPixelizerModal: React.FC<PhotoPixelizerModalProps> = ({
                     <input
                       type="range"
                       min={3}
-                      max={6}
+                      max={20}
                       step={1}
                       value={numColors}
                       onChange={(e) => {

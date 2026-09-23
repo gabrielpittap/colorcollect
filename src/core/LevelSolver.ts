@@ -31,7 +31,8 @@ export class LevelSolver {
     initialGrid: BoardGrid,
     initialSupply: { colorId: string; capacity: number }[][],
     maxBufferSize: number = 5,
-    maxStatesToExplore: number = 8000
+    maxStatesToExplore: number = 8000,
+    returnOnFirstSolution: boolean = false
   ): SolverResult {
     const startTime = performance.now();
 
@@ -103,6 +104,7 @@ export class LevelSolver {
         if (!bestSolution || current.path.length < bestSolution.length) {
           bestSolution = current.path;
         }
+        if (returnOnFirstSolution) break; // Otimização extrema para validação
         continue;
       }
 

@@ -1,64 +1,76 @@
 import React from 'react';
-import { BufferSlot, ColorDef } from '../core/Types';
-import { Layers, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { BufferSlot, ColorDef, MiniBot } from '../core/Types';
+import { Bot, AlertTriangle } from 'lucide-react';
 
 interface BufferViewProps {
   slots: BufferSlot[];
   palette: Record<string, ColorDef>;
   isDeadlocked: boolean;
+  robots?: MiniBot[];
 }
 
 export const BufferView: React.FC<BufferViewProps> = ({
   slots,
   palette,
   isDeadlocked,
+  robots = [],
 }) => {
+  const freeSlotsCount = slots.filter((s) => s.box === null).length;
+
   return (
-    <div className="flex flex-col items-center w-full p-4 bg-slate-900/80 rounded-2xl border border-slate-800 shadow-xl backdrop-blur-sm">
-      <div className="flex items-center justify-between w-full mb-3 text-xs text-slate-400 font-medium">
-        <span className="flex items-center gap-1.5 font-bold text-slate-200">
-          <Layers className="w-4 h-4 text-primary" />
-          Fila de Espera (Buffer Limite: 5 Slots)
-        </span>
-        {isDeadlocked ? (
-          <span className="flex items-center gap-1 text-rose-400 font-bold animate-bounce">
-            <AlertTriangle className="w-3.5 h-3.5" />
-            BUFFER TRAVADO (DEADLOCK)!
+    <div className="flex flex-col items-center w-full px-3 py-2.5 bg-slate-900/90 rounded-2xl border border-slate-800 shadow-xl backdrop-blur-md">
+      {/* Barra de Status da Fila */}
+      <div className="flex items-center justify-between w-full mb-2 text-xs font-semibold">
+        <span className="flex items-center gap-1.5 text-slate-200">
+          <Bot className="w-4 h-4 text-cyan-400" />
+          Docas de Espera
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+            {freeSlotsCount} / {slots.length} livres
           </span>
-        ) : (
-          <span className="text-slate-400">
-            {slots.filter((s) => s.box === null).length} slots livres
+        </span>
+
+        {isDeadlocked && (
+          <span className="flex items-center gap-1 text-rose-400 font-extrabold animate-pulse text-[11px]">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            DOCAS TRAVADAS!
           </span>
         )}
       </div>
 
-      {/* 5 Slots Grid */}
-      <div className="grid grid-cols-5 gap-2.5 w-full max-w-md">
+      {/* Grid das 5 Docas */}
+      <div className="grid grid-cols-5 gap-2 w-full max-w-lg">
         {slots.map((slot) => {
           const box = slot.box;
           const colorDef = box ? palette[box.colorId] : null;
+          const bot = robots.find((r) => r.slotIndex === slot.index);
 
           return (
             <div
               key={slot.index}
-              className={`h-24 rounded-xl flex flex-col items-center justify-between p-2 transition-all duration-300 ${
-                box
-                  ? 'border-2 shadow-lg scale-100'
-                  : 'border-2 border-dashed border-slate-800 bg-slate-950/40 text-slate-600'
+              className={`relative h-20 rounded-xl flex flex-col items-center justify-between p-1.5 transition-all duration-200 select-none ${
+                box && colorDef
+                  ? 'border-2 shadow-lg scale-[1.02]'
+                  : 'border-2 border-dashed border-slate-800/80 bg-slate-950/40 text-slate-600'
               }`}
               style={{
-                backgroundColor: box && colorDef ? `${colorDef.hex}22` : undefined,
+                backgroundColor: box && colorDef ? `${colorDef.hex}18` : undefined,
                 borderColor: box && colorDef ? colorDef.hex : undefined,
+                boxShadow: box && colorDef ? `0 4px 14px ${colorDef.hex}25` : undefined,
               }}
             >
-              <div className="text-[10px] uppercase font-bold text-slate-400">
-                Slot {slot.index + 1}
+              {/* Número do Slot */}
+              <div className="w-full flex justify-between items-center text-[9px] font-black uppercase text-slate-400">
+                <span>D{slot.index + 1}</span>
+                {bot && bot.cargoColor && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                )}
               </div>
 
               {box && colorDef ? (
                 <>
+                  {/* Ícone / Mini Cubo da Cor */}
                   <div
-                    className="w-10 h-10 rounded-lg flex items-center justify-center font-black text-sm shadow-md transition-transform"
+                    className="w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs shadow-md border border-white/40"
                     style={{
                       backgroundColor: colorDef.hex,
                       color: colorDef.textHex,
@@ -66,15 +78,17 @@ export const BufferView: React.FC<BufferViewProps> = ({
                   >
                     {colorDef.letter}
                   </div>
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs font-mono font-black text-white px-2 py-0.5 rounded-full bg-slate-950/80 border border-slate-700">
+
+                  {/* Contador Restante */}
+                  <div className="w-full text-center">
+                    <span className="text-[11px] font-mono font-black text-white px-2 py-0.5 rounded-full bg-slate-950/90 border border-slate-700/80 shadow-inner">
                       {box.remaining}
                     </span>
                   </div>
                 </>
               ) : (
-                <div className="flex-1 flex items-center justify-center text-xs font-medium">
-                  Vazio
+                <div className="flex-1 flex items-center justify-center text-[10px] font-bold text-slate-600">
+                  Livre
                 </div>
               )}
             </div>

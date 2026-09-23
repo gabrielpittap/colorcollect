@@ -63,4 +63,7 @@ export const DEFAULT_PALETTE: Record<string, ColorDef> = {
   },
 };
 
-export const COLOR_KEYS = Object.keys(DEFAULT_PALETTE);
+export const COLOR_KEYS = [
+  'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 
+  'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
+];

@@ -25,10 +25,10 @@ export const BoardView: React.FC<BoardViewProps> = ({ grid, palette }) => {
 
       {/* Grid Canvas Container */}
       <div
-        className="grid gap-1 p-2 bg-slate-950 rounded-xl border border-slate-800/80 shadow-inner"
+        className="grid gap-0.5 p-2 bg-slate-950 rounded-xl border border-slate-800/80 shadow-inner w-full max-w-[600px] mx-auto"
         style={{
           gridTemplateColumns: `repeat(${width}, minmax(0, 1fr))`,
-          maxWidth: '100%',
+          aspectRatio: width && height ? `${width} / ${height}` : '1 / 1',
         }}
       >
         {grid.map((row, y) =>
@@ -37,7 +37,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ grid, palette }) => {
               return (
                 <div
                   key={`${x}-${y}`}
-                  className="w-7 h-7 sm:w-8 sm:h-8 rounded-md bg-slate-900/30 border border-slate-800/20 transition-all duration-300"
+                  className="w-full h-full rounded-sm bg-slate-900/30 transition-all duration-300"
                 />
               );
             }
@@ -45,12 +45,15 @@ export const BoardView: React.FC<BoardViewProps> = ({ grid, palette }) => {
             const colorDef = palette[cell];
             const isExposed = EdgeDetector.isCellExposed(grid, x, y);
 
+            // Calcula um tamanho de fonte menor para grades maiores
+            const fontSize = width > 20 ? 'text-[8px]' : 'text-xs';
+
             return (
               <div
                 key={`${x}-${y}`}
-                className={`w-7 h-7 sm:w-8 sm:h-8 rounded-md flex items-center justify-center text-xs font-black shadow-md transition-all duration-200 select-none ${
+                className={`w-full h-full rounded-sm flex items-center justify-center ${fontSize} font-black shadow-sm transition-all duration-200 select-none ${
                   isExposed
-                    ? 'ring-2 ring-white/90 scale-[1.02] shadow-cyan-500/20'
+                    ? 'ring-[1.5px] ring-white/90 scale-[1.05] shadow-cyan-500/20 z-10'
                     : 'opacity-85'
                 }`}
                 style={{
@@ -61,7 +64,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ grid, palette }) => {
                   isExposed ? '[Borda Exposta]' : '[Oculto no Miolo]'
                 }`}
               >
-                {colorDef?.letter || cell}
+                {width > 25 ? null : (colorDef?.letter || cell)}
               </div>
             );
           })

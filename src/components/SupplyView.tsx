@@ -1,6 +1,6 @@
 import React from 'react';
 import { ColorDef, SupplyBox } from '../core/Types';
-import { ArrowUp, Lock } from 'lucide-react';
+import { ArrowUp, Lock, Package } from 'lucide-react';
 
 interface SupplyViewProps {
   columns: SupplyBox[][];
@@ -16,17 +16,18 @@ export const SupplyView: React.FC<SupplyViewProps> = ({
   canPull,
 }) => {
   return (
-    <div className="flex flex-col items-center w-full p-4 bg-slate-900/80 rounded-2xl border border-slate-800 shadow-xl backdrop-blur-sm">
-      <div className="flex items-center justify-between w-full mb-3 text-xs text-slate-400 font-medium">
-        <span className="font-bold text-slate-200">
-          Pilha Inferior de Caixas (Supply Deck)
+    <div className="flex flex-col items-center w-full px-3 py-2.5 bg-slate-900/90 rounded-2xl border border-slate-800 shadow-xl backdrop-blur-md">
+      <div className="flex items-center justify-between w-full mb-2 text-xs font-semibold text-slate-300">
+        <span className="flex items-center gap-1.5">
+          <Package className="w-4 h-4 text-cyan-400" />
+          Depósito de Caixas
         </span>
-        <span className="text-slate-500">
-          Apenas a <strong>caixa da frente</strong> de cada coluna pode ser puxada
+        <span className="text-[10px] text-slate-400">
+          Toque para lançar à doca
         </span>
       </div>
 
-      <div className="grid grid-cols-4 gap-3 w-full max-w-md">
+      <div className="grid grid-cols-4 gap-2.5 w-full max-w-lg">
         {columns.map((column, colIdx) => {
           const topBox = column[0];
           const hasBoxes = column.length > 0;
@@ -34,71 +35,68 @@ export const SupplyView: React.FC<SupplyViewProps> = ({
 
           return (
             <div key={colIdx} className="flex flex-col items-center gap-1.5">
-              <span className="text-[10px] font-bold text-slate-500">
-                Col {colIdx + 1} ({column.length})
-              </span>
-
-              {/* Caixa Frontal (Clicável se liberada) */}
+              {/* Caixa Frontal Liberada */}
               {hasBoxes && topColor ? (
                 <button
                   type="button"
                   onClick={() => canPull && onPullBox(colIdx)}
                   disabled={!canPull}
-                  className={`w-full group relative rounded-xl p-2.5 flex flex-col items-center justify-between border-2 transition-all duration-200 cursor-pointer ${
+                  className={`w-full group relative rounded-2xl p-2 flex flex-col items-center justify-between border-2 transition-all duration-150 select-none shadow-md ${
                     canPull
-                      ? 'hover:-translate-y-1 hover:shadow-lg active:scale-95'
-                      : 'opacity-60 cursor-not-allowed'
+                      ? 'hover:-translate-y-1 active:translate-y-0.5 active:scale-95 cursor-pointer shadow-cyan-500/10'
+                      : 'opacity-50 cursor-not-allowed'
                   }`}
                   style={{
                     backgroundColor: topColor.hex,
-                    borderColor: '#ffffff55',
+                    borderColor: '#ffffff66',
                     color: topColor.textHex,
+                    boxShadow: canPull ? `0 6px 16px ${topColor.hex}30` : undefined,
                   }}
-                  title={`Puxar caixa ${topColor.letter} (${topBox.remaining} blocos) para o buffer`}
+                  title={`Puxar caixa ${topColor.name} (${topBox.remaining} blocos)`}
                 >
                   <div className="w-full flex justify-between items-center text-[10px] font-black opacity-80">
-                    <span>{topColor.letter}</span>
-                    <ArrowUp className="w-3 h-3 group-hover:-translate-y-0.5 transition-transform" />
+                    <span className="tracking-wider">{topColor.letter}</span>
+                    <ArrowUp className="w-3.5 h-3.5 group-hover:-translate-y-0.5 transition-transform" />
                   </div>
 
-                  <span className="text-lg font-black tracking-tight my-1">
+                  <span className="text-xl font-black tracking-tight my-0.5 drop-shadow-sm">
                     {topBox.remaining}
                   </span>
 
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-black/20">
-                    Livre
+                  <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-black/25 backdrop-blur-xs">
+                    Disponível
                   </span>
                 </button>
               ) : (
-                <div className="w-full h-20 rounded-xl border border-dashed border-slate-800 bg-slate-950/20 flex items-center justify-center text-xs text-slate-600">
+                <div className="w-full h-[76px] rounded-2xl border-2 border-dashed border-slate-800 bg-slate-950/30 flex items-center justify-center text-xs text-slate-600 font-bold select-none">
                   Vazio
                 </div>
               )}
 
-              {/* Caixas de trás empilhadas (Bloqueadas) */}
-              <div className="w-full flex flex-col gap-1 mt-1">
-                {column.slice(1, 4).map((box, depth) => {
+              {/* Caixas de trás empilhadas */}
+              <div className="w-full flex flex-col gap-1">
+                {column.slice(1, 4).map((box) => {
                   const color = palette[box.colorId];
                   return (
                     <div
                       key={box.id}
-                      className="w-full rounded-lg px-2 py-1 flex items-center justify-between text-[11px] font-bold opacity-40 border border-slate-800"
+                      className="w-full rounded-lg px-2 py-1 flex items-center justify-between text-[11px] font-bold opacity-60 border border-slate-800/80 bg-slate-950/60"
                       style={{
-                        backgroundColor: color?.hex ? `${color.hex}33` : '#1e293b',
+                        borderColor: color?.hex ? `${color.hex}44` : '#334155',
                         color: color?.hex || '#94a3b8',
                       }}
                     >
                       <span className="flex items-center gap-1">
-                        <Lock className="w-2.5 h-2.5" />
+                        <Lock className="w-2.5 h-2.5 text-slate-500" />
                         {color?.letter || box.colorId}
                       </span>
-                      <span>{box.totalCapacity}</span>
+                      <span className="font-mono text-[10px]">{box.totalCapacity}</span>
                     </div>
                   );
                 })}
                 {column.length > 4 && (
-                  <span className="text-[9px] text-center text-slate-500">
-                    +{column.length - 4} atrás
+                  <span className="text-[9px] text-center text-slate-500 font-medium">
+                    +{column.length - 4} na fila
                   </span>
                 )}
               </div>
