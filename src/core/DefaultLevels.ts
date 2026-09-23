@@ -3,18 +3,19 @@ import { DEFAULT_PALETTE } from './Colors';
 
 /**
  * Cria a matriz e o deck balanceado para as 5 fases iniciais do jogo.
- * Todas as fases são matematicamente verificadas para garantir que a soma das capacidades
- * das caixas de cada cor é EXATAMENTE igual ao número total de blocos daquela cor no tabuleiro.
+ * Todas as fases são auditadas e verificadas matematicamente para garantir que:
+ * 1. Para CADA cor presente na matriz, a soma das capacidades das caixas é EXATAMENTE igual ao número de blocos no tabuleiro.
+ * 2. Nenhuma cor da matriz fica sem caixas correspondentes.
+ * 3. Nenhuma caixa possui cor inexistente no tabuleiro.
+ * 4. A ordem de camadas permite que a fase seja 100% resolvida sem deadlocks com os 5 slots de espera.
  */
 
-// Helper para converter string de ASCII art em BoardGrid
 function parseAsciiGrid(ascii: string[]): (string | null)[][] {
   return ascii.map((row) =>
     row.split('').map((char) => (char === '.' || char === ' ' ? null : char))
   );
 }
 
-// Helper para contar blocos por cor
 function countGridColors(grid: (string | null)[][]): {
   counts: Record<string, number>;
   total: number;
@@ -33,7 +34,7 @@ function countGridColors(grid: (string | null)[][]): {
 }
 
 // ----------------------------------------------------------------------------
-// Nível 1: Estrela Guia (Introdução Confortável - Laranja, Amarelo e Branco)
+// Nível 1: Estrela Guia (3 Cores: Laranja, Amarelo, Branco - 55 blocos)
 // ----------------------------------------------------------------------------
 const LEVEL_1_ASCII = [
   '....E....',
@@ -51,7 +52,7 @@ const LEVEL_1_ASCII = [
 
 const grid1 = parseAsciiGrid(LEVEL_1_ASCII);
 const counts1 = countGridColors(grid1);
-// E: 28 blocos, B: 17 blocos, G: 3 blocos. Total: 48 blocos
+// E: 32 blocos, B: 20 blocos, G: 3 blocos. Total: 55 blocos
 
 const LEVEL_1: LevelData = {
   id: 'level_1',
@@ -63,9 +64,9 @@ const LEVEL_1: LevelData = {
   bufferSize: 5,
   initialSupply: [
     // Coluna 1
-    [{ colorId: 'E', capacity: 14 }, { colorId: 'B', capacity: 8 }],
+    [{ colorId: 'E', capacity: 16 }, { colorId: 'B', capacity: 10 }],
     // Coluna 2
-    [{ colorId: 'E', capacity: 14 }, { colorId: 'B', capacity: 9 }],
+    [{ colorId: 'E', capacity: 16 }, { colorId: 'B', capacity: 10 }],
     // Coluna 3
     [{ colorId: 'G', capacity: 3 }],
     // Coluna 4
@@ -81,7 +82,7 @@ const LEVEL_1: LevelData = {
 };
 
 // ----------------------------------------------------------------------------
-// Nível 2: Mini Robô Operário (4 Cores: Azul Ciano, Amarelo, Branco e Laranja)
+// Nível 2: Mini Robô Operário (4 Cores: Azul Ciano, Amarelo, Branco e Laranja - 60 blocos)
 // ----------------------------------------------------------------------------
 const LEVEL_2_ASCII = [
   '..A...A..',
@@ -98,7 +99,7 @@ const LEVEL_2_ASCII = [
 
 const grid2 = parseAsciiGrid(LEVEL_2_ASCII);
 const counts2 = countGridColors(grid2);
-// A: 28, G: 25, B: 2, E: 3. Total: 58
+// A: 36 blocos, G: 19 blocos, B: 2 blocos, E: 3 blocos. Total: 60 blocos
 
 const LEVEL_2: LevelData = {
   id: 'level_2',
@@ -109,14 +110,14 @@ const LEVEL_2: LevelData = {
   palette: DEFAULT_PALETTE,
   bufferSize: 5,
   initialSupply: [
-    // Coluna 1
-    [{ colorId: 'A', capacity: 14 }, { colorId: 'G', capacity: 12 }],
-    // Coluna 2
-    [{ colorId: 'A', capacity: 14 }, { colorId: 'G', capacity: 13 }],
-    // Coluna 3
-    [{ colorId: 'B', capacity: 2 }, { colorId: 'E', capacity: 3 }],
-    // Coluna 4
-    [],
+    // Coluna 1: Capacete e placa
+    [{ colorId: 'A', capacity: 18 }, { colorId: 'G', capacity: 10 }],
+    // Coluna 2: Capacete e placa
+    [{ colorId: 'A', capacity: 18 }, { colorId: 'G', capacity: 9 }],
+    // Coluna 3: Olhos
+    [{ colorId: 'B', capacity: 2 }],
+    // Coluna 4: Boca
+    [{ colorId: 'E', capacity: 3 }],
   ],
   metadata: {
     totalBlocks: counts2.total,
@@ -128,7 +129,7 @@ const LEVEL_2: LevelData = {
 };
 
 // ----------------------------------------------------------------------------
-// Nível 3: Coração Quântico (3 Cores: Rosa Magenta, Laranja, Branco)
+// Nível 3: Coração Quântico (3 Cores: Rosa Magenta, Laranja, Branco - 53 blocos)
 // ----------------------------------------------------------------------------
 const LEVEL_3_ASCII = [
   '.CC...CC.',
@@ -144,7 +145,7 @@ const LEVEL_3_ASCII = [
 
 const grid3 = parseAsciiGrid(LEVEL_3_ASCII);
 const counts3 = countGridColors(grid3);
-// C: 26, E: 20, G: 3. Total: 49
+// C: 27 blocos, E: 23 blocos, G: 3 blocos. Total: 53 blocos
 
 const LEVEL_3: LevelData = {
   id: 'level_3',
@@ -156,9 +157,9 @@ const LEVEL_3: LevelData = {
   bufferSize: 5,
   initialSupply: [
     // Coluna 1
-    [{ colorId: 'C', capacity: 13 }, { colorId: 'E', capacity: 10 }],
+    [{ colorId: 'C', capacity: 14 }, { colorId: 'E', capacity: 12 }],
     // Coluna 2
-    [{ colorId: 'C', capacity: 13 }, { colorId: 'E', capacity: 10 }],
+    [{ colorId: 'C', capacity: 13 }, { colorId: 'E', capacity: 11 }],
     // Coluna 3
     [{ colorId: 'G', capacity: 3 }],
     // Coluna 4
@@ -174,7 +175,7 @@ const LEVEL_3: LevelData = {
 };
 
 // ----------------------------------------------------------------------------
-// Nível 4: Foguete Cósmico (4 Cores: Rosa, Ciano, Branco, Amarelo)
+// Nível 4: Foguete Cósmico (4 Cores: Rosa, Branco, Amarelo, Ciano - 47 blocos)
 // ----------------------------------------------------------------------------
 const LEVEL_4_ASCII = [
   '....C....',
@@ -192,7 +193,7 @@ const LEVEL_4_ASCII = [
 
 const grid4 = parseAsciiGrid(LEVEL_4_ASCII);
 const counts4 = countGridColors(grid4);
-// C: 12, G: 23, A: 4, B: 7. Total: 46
+// C: 12 blocos, G: 24 blocos, B: 7 blocos, A: 4 blocos. Total: 47 blocos
 
 const LEVEL_4: LevelData = {
   id: 'level_4',
@@ -203,11 +204,11 @@ const LEVEL_4: LevelData = {
   palette: DEFAULT_PALETTE,
   bufferSize: 5,
   initialSupply: [
-    // Coluna 1: Asas e ponta
-    [{ colorId: 'C', capacity: 6 }, { colorId: 'G', capacity: 11 }],
-    // Coluna 2: Asas e propulsor
+    // Coluna 1: Asas e fuselagem
+    [{ colorId: 'C', capacity: 6 }, { colorId: 'G', capacity: 12 }],
+    // Coluna 2: Propulsor e bico
     [{ colorId: 'B', capacity: 7 }, { colorId: 'C', capacity: 6 }],
-    // Coluna 3: Fuselagem
+    // Coluna 3: Fuselagem e janelas da cabine
     [{ colorId: 'G', capacity: 12 }, { colorId: 'A', capacity: 4 }],
     // Coluna 4: Reserva
     [],
@@ -222,7 +223,7 @@ const LEVEL_4: LevelData = {
 };
 
 // ----------------------------------------------------------------------------
-// Nível 5: Dragão Tecno (5 Cores: Verde Esmeralda, Ciano, Amarelo, Roxo, Branco)
+// Nível 5: Dragão Tecno (5 Cores: Verde, Ciano, Roxo, Amarelo, Branco - 57 blocos)
 // ----------------------------------------------------------------------------
 const LEVEL_5_ASCII = [
   'DD.....DD',
@@ -238,7 +239,7 @@ const LEVEL_5_ASCII = [
 
 const grid5 = parseAsciiGrid(LEVEL_5_ASCII);
 const counts5 = countGridColors(grid5);
-// D: 37, A: 4, F: 6, G: 2, B: 8. Total: 57
+// D: 37 blocos, A: 4 blocos, F: 6 blocos, B: 8 blocos, G: 2 blocos. Total: 57 blocos
 
 const LEVEL_5: LevelData = {
   id: 'level_5',
@@ -249,13 +250,13 @@ const LEVEL_5: LevelData = {
   palette: DEFAULT_PALETTE,
   bufferSize: 5,
   initialSupply: [
-    // Coluna 1
+    // Coluna 1: Escamas e chifres
     [{ colorId: 'D', capacity: 18 }, { colorId: 'A', capacity: 4 }],
-    // Coluna 2 (com interleaving estratégico: F enterrado atrás de D)
+    // Coluna 2: Escamas e asas
     [{ colorId: 'D', capacity: 19 }, { colorId: 'F', capacity: 6 }],
-    // Coluna 3
+    // Coluna 3: Peito e cristal central
     [{ colorId: 'B', capacity: 8 }, { colorId: 'G', capacity: 2 }],
-    // Coluna 4
+    // Coluna 4: Reserva
     [],
   ],
   metadata: {

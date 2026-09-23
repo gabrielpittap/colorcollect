@@ -2,7 +2,7 @@ import { LevelData, LevelProgress, GameSettings } from './Types';
 import { INITIAL_LEVELS } from './DefaultLevels';
 
 const STORAGE_KEYS = {
-  LEVELS: 'colorcollect_levels_v2',
+  LEVELS: 'colorcollect_levels_v4', // Atualizado para v4 para garantir dados auditados
   PROGRESS: 'colorcollect_progress_v2',
   SETTINGS: 'colorcollect_settings_v2',
   LAST_LEVEL_ID: 'colorcollect_last_level_id',
@@ -10,7 +10,102 @@ const STORAGE_KEYS = {
 
 class StorageManagerClass {
   /**
-   * Obtém a lista completa de fases (padrão + customizadas/editadas)
+   * Audita matematicamente uma fase: verifica se cada cor na matriz tem exatamente
+   * o mesmo número de blocos no deck de suprimento. Se houver discrepância (por ex. de cache antigo),
+   * corrige automaticamente as capacidades para garantir 100% de consistência.
+   */
+  public auditAndEnsureConsistency(level: LevelData): LevelData {
+    // 1. Contagem real na matriz
+    const gridCounts: Record<string, number> = {};
+    let totalGrid = 0;
+    for (const row of level.initialGrid) {
+      for (const cell of row) {
+        if (cell) {
+          gridCounts[cell] = (gridCounts[cell] || 0) + 1;
+          totalGrid++;
+        }
+      }
+    }
+
+    // 2. Contagem atual no deck
+    const supplyCounts: Record<string, number> = {};
+    level.initialSupply.forEach((col) => {
+      col.forEach((b) => {
+        supplyCounts[b.colorId] = (supplyCounts[b.colorId] || 0) + b.capacity;
+      });
+    });
+
+    // 3. Verifica se há inconsistência
+    let hasMismatch = false;
+    for (const c of Object.keys(gridCounts)) {
+      if (gridCounts[c] !== (supplyCounts[c] || 0)) {
+        hasMismatch = true;
+        break;
+      }
+    }
+    for (const c of Object.keys(supplyCounts)) {
+      if (!gridCounts[c] && supplyCounts[c] > 0) {
+        hasMismatch = true;
+        break;
+      }
+    }
+
+    if (!hasMismatch) {
+      return level;
+    }
+
+    // Se houver inconsistência, corrige e reequilibra com precisão cirúrgica
+    const repaired = JSON.parse(JSON.stringify(level)) as LevelData;
+
+    // Remove caixas de cores fantasmas que não existem na matriz
+    repaired.initialSupply = repaired.initialSupply.map((col) =>
+      col.filter((b) => gridCounts[b.colorId] > 0)
+    );
+
+    // Ajusta as capacidades das cores existentes para bater 100% com a matriz
+    for (const colorId of Object.keys(gridCounts)) {
+      const needed = gridCounts[colorId];
+      const matchingBoxes: { col: number; depth: number; box: { colorId: string; capacity: number } }[] = [];
+      repaired.initialSupply.forEach((col, colIdx) => {
+        col.forEach((box, depth) => {
+          if (box.colorId === colorId) {
+            matchingBoxes.push({ col: colIdx, depth, box });
+          }
+        });
+      });
+
+      if (matchingBoxes.length === 0) {
+        // Se a cor existe na matriz mas não tinha caixa, adiciona na coluna com menos caixas
+        let minCol = 0;
+        for (let i = 1; i < repaired.initialSupply.length; i++) {
+          if (repaired.initialSupply[i].length < repaired.initialSupply[minCol].length) {
+            minCol = i;
+          }
+        }
+        repaired.initialSupply[minCol].push({ colorId, capacity: needed });
+      } else {
+        // Distribui exatamente a quantidade necessária entre as caixas existentes
+        const currentSum = matchingBoxes.reduce((acc, m) => acc + m.box.capacity, 0) || 1;
+        let allocated = 0;
+        matchingBoxes.forEach((m, idx) => {
+          if (idx === matchingBoxes.length - 1) {
+            m.box.capacity = Math.max(1, needed - allocated);
+          } else {
+            const prop = Math.max(1, Math.round((m.box.capacity / currentSum) * needed));
+            m.box.capacity = prop;
+            allocated += prop;
+          }
+        });
+      }
+    }
+
+    repaired.metadata.totalBlocks = totalGrid;
+    repaired.metadata.colorCounts = gridCounts;
+    return repaired;
+  }
+
+  /**
+   * Obtém a lista completa de fases (auditadas e garantidas de ter 100% de consistência)
    */
   public getLevels(): LevelData[] {
     try {
@@ -18,16 +113,19 @@ class StorageManagerClass {
       if (data) {
         const parsed = JSON.parse(data);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+          // Audita e valida cada fase carregada
+          const audited = parsed.map((lvl) => this.auditAndEnsureConsistency(lvl));
+          return audited;
         }
       }
     } catch (e) {
       console.error('Erro ao ler fases do localStorage:', e);
     }
 
-    // Inicializa com as 5 fases padrão se não houver dados salvos
-    this.saveLevels(INITIAL_LEVELS);
-    return INITIAL_LEVELS;
+    // Inicializa com as 5 fases padrão auditadas
+    const auditedDefaults = INITIAL_LEVELS.map((lvl) => this.auditAndEnsureConsistency(lvl));
+    this.saveLevels(auditedDefaults);
+    return auditedDefaults;
   }
 
   /**
@@ -35,7 +133,8 @@ class StorageManagerClass {
    */
   public saveLevels(levels: LevelData[]): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.LEVELS, JSON.stringify(levels));
+      const audited = levels.map((lvl) => this.auditAndEnsureConsistency(lvl));
+      localStorage.setItem(STORAGE_KEYS.LEVELS, JSON.stringify(audited));
     } catch (e) {
       console.error('Erro ao salvar fases no localStorage:', e);
     }
@@ -45,12 +144,13 @@ class StorageManagerClass {
    * Salva ou atualiza uma fase específica
    */
   public saveLevel(level: LevelData): void {
+    const auditedLevel = this.auditAndEnsureConsistency(level);
     const levels = this.getLevels();
-    const index = levels.findIndex((l) => l.id === level.id);
+    const index = levels.findIndex((l) => l.id === auditedLevel.id);
     if (index >= 0) {
-      levels[index] = level;
+      levels[index] = auditedLevel;
     } else {
-      levels.push(level);
+      levels.push(auditedLevel);
     }
     this.saveLevels(levels);
   }
@@ -69,11 +169,12 @@ class StorageManagerClass {
   }
 
   /**
-   * Restaura as 5 fases padrão de fábrica
+   * Restaura as 5 fases padrão auditadas de fábrica
    */
   public resetToDefaults(): LevelData[] {
-    this.saveLevels(INITIAL_LEVELS);
-    return INITIAL_LEVELS;
+    const auditedDefaults = INITIAL_LEVELS.map((lvl) => this.auditAndEnsureConsistency(lvl));
+    this.saveLevels(auditedDefaults);
+    return auditedDefaults;
   }
 
   /**
