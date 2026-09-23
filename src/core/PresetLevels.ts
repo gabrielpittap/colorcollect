@@ -1,26 +1,24 @@
 import { BoardGrid } from './Types';
-import { LevelGenerator } from './LevelGenerator';
+import { LEGACY_LETTER_MAP } from './Colors';
 
 /**
- * Nível 1: Alvo Concêntrico (Target) - Demonstração pura de dependência
- * Camada 0: A (Azul Ciano) na moldura externa
- * Camada 1: B (Amarelo) no anel intermediário
- * Camada 2: C (Magenta) no miolo
+ * Nível 1: Alvo Concêntrico (Target)
+ * Casca: #4AF (Ciano), Meio: #FC4 (Amarelo), Miolo: #F6C (Magenta)
  */
 export function createConcentricLevel(): BoardGrid {
   const size = 12;
   const grid: BoardGrid = Array.from({ length: size }, () =>
-    Array(size).fill('C')
+    Array(size).fill('#F6C')
   );
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       if (x <= 1 || x >= size - 2 || y <= 1 || y >= size - 2) {
-        grid[y][x] = 'A'; // Casca externa
+        grid[y][x] = '#4AF'; // Casca externa
       } else if (x <= 3 || x >= size - 4 || y <= 3 || y >= size - 4) {
-        grid[y][x] = 'B'; // Camada média
+        grid[y][x] = '#FC4'; // Camada média
       } else {
-        grid[y][x] = 'C'; // Miolo
+        grid[y][x] = '#F6C'; // Miolo
       }
     }
   }
@@ -30,10 +28,8 @@ export function createConcentricLevel(): BoardGrid {
 
 /**
  * Nível 2: Mini Robô (Cubic Bot)
- * Matriz 14x14 representando um robozinho com rodinhas (E), corpo (A), visor (B) e núcleo (C).
  */
 export function createMiniBotLevel(): BoardGrid {
-  // A: Corpo Azul, B: Visor Amarelo, C: Núcleo Magenta, D: Antena Verde, E: Rodinhas Laranja
   const layout = [
     '..............',
     '.....DD.......',
@@ -52,7 +48,7 @@ export function createMiniBotLevel(): BoardGrid {
   ];
 
   return layout.map((row) =>
-    row.split('').map((char) => (char === '.' ? null : char))
+    row.split('').map((char) => (char === '.' ? null : (LEGACY_LETTER_MAP[char] || char)))
   );
 }
 
@@ -76,6 +72,6 @@ export function createHeartLevel(): BoardGrid {
   ];
 
   return layout.map((row) =>
-    row.split('').map((char) => (char === '.' ? null : char))
+    row.split('').map((char) => (char === '.' ? null : (LEGACY_LETTER_MAP[char] || char)))
   );
 }

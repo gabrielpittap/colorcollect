@@ -4,11 +4,11 @@
  */
 
 export interface ColorDef {
-  id: string;       // ex: 'A', 'B', 'C' ou '1', '2'
-  letter: string;   // Letra de exibição
-  name: string;     // Nome amigável (ex: "Azul Elétrico")
-  hex: string;      // Cor primária HEX
+  id: string;       // ex: '#4AF', '#FC4', '#F84'
+  hex: string;      // Cor primária HEX de 3 dígitos (ex: #4AF)
+  name: string;     // Nome amigável (ex: "Azul Ciano")
   textHex: string;  // Cor de texto de alto contraste (#ffffff ou #000000)
+  letter?: string;  // Campo legado opcional (nunca exibido na HUD/interface)
 }
 
 export interface GridCell {

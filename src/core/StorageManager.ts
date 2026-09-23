@@ -1,12 +1,21 @@
 import { LevelData, LevelProgress, GameSettings } from './Types';
 import { INITIAL_LEVELS } from './DefaultLevels';
+import { normalizeColorId, DEFAULT_PALETTE } from './Colors';
 
 const STORAGE_KEYS = {
-  LEVELS: 'colorcollect_levels_v4', // Atualizado para v4 para garantir dados auditados
-  PROGRESS: 'colorcollect_progress_v2',
+  LEVELS: 'colorcollect_levels_v5', // Atualizado para v5 com identificadores hexadecimais de 3 dígitos
+  PROGRESS: 'colorcollect_progress_v3',
   SETTINGS: 'colorcollect_settings_v2',
   LAST_LEVEL_ID: 'colorcollect_last_level_id',
 };
+
+function isStorageAvailable(): boolean {
+  try {
+    return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+  } catch {
+    return false;
+  }
+}
 
 class StorageManagerClass {
   /**
@@ -15,6 +24,17 @@ class StorageManagerClass {
    * corrige automaticamente as capacidades para garantir 100% de consistência.
    */
   public auditAndEnsureConsistency(level: LevelData): LevelData {
+    // 0. Normaliza IDs de cores legados (ex: 'A' -> '#4AF')
+    level.initialGrid = level.initialGrid.map((row) =>
+      row.map((cell) => (cell ? normalizeColorId(cell) : null))
+    );
+    level.initialSupply.forEach((col) => {
+      col.forEach((b) => {
+        b.colorId = normalizeColorId(b.colorId);
+      });
+    });
+    level.palette = { ...DEFAULT_PALETTE, ...(level.palette || {}) };
+
     // 1. Contagem real na matriz
     const gridCounts: Record<string, number> = {};
     let totalGrid = 0;
@@ -108,18 +128,20 @@ class StorageManagerClass {
    * Obtém a lista completa de fases (auditadas e garantidas de ter 100% de consistência)
    */
   public getLevels(): LevelData[] {
-    try {
-      const data = localStorage.getItem(STORAGE_KEYS.LEVELS);
-      if (data) {
-        const parsed = JSON.parse(data);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // Audita e valida cada fase carregada
-          const audited = parsed.map((lvl) => this.auditAndEnsureConsistency(lvl));
-          return audited;
+    if (isStorageAvailable()) {
+      try {
+        const data = localStorage.getItem(STORAGE_KEYS.LEVELS);
+        if (data) {
+          const parsed = JSON.parse(data);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            // Audita e valida cada fase carregada
+            const audited = parsed.map((lvl) => this.auditAndEnsureConsistency(lvl));
+            return audited;
+          }
         }
+      } catch (e) {
+        console.error('Erro ao ler fases do localStorage:', e);
       }
-    } catch (e) {
-      console.error('Erro ao ler fases do localStorage:', e);
     }
 
     // Inicializa com as 5 fases padrão auditadas
@@ -132,6 +154,7 @@ class StorageManagerClass {
    * Salva toda a lista de fases no localStorage
    */
   public saveLevels(levels: LevelData[]): void {
+    if (!isStorageAvailable()) return;
     try {
       const audited = levels.map((lvl) => this.auditAndEnsureConsistency(lvl));
       localStorage.setItem(STORAGE_KEYS.LEVELS, JSON.stringify(audited));
@@ -189,10 +212,12 @@ class StorageManagerClass {
    * Obtém todo o mapa de progresso
    */
   public getAllProgress(): Record<string, LevelProgress> {
-    try {
-      const data = localStorage.getItem(STORAGE_KEYS.PROGRESS);
-      if (data) return JSON.parse(data);
-    } catch {}
+    if (isStorageAvailable()) {
+      try {
+        const data = localStorage.getItem(STORAGE_KEYS.PROGRESS);
+        if (data) return JSON.parse(data);
+      } catch {}
+    }
     return {};
   }
 
@@ -200,6 +225,7 @@ class StorageManagerClass {
    * Salva progresso de vitória ou nova pontuação em uma fase
    */
   public saveLevelProgress(levelId: string, progress: Partial<LevelProgress>): void {
+    if (!isStorageAvailable()) return;
     try {
       const all = this.getAllProgress();
       const current = all[levelId] || { completed: false, stars: 0 };
@@ -223,17 +249,21 @@ class StorageManagerClass {
    * Obtém o ID da última fase jogada
    */
   public getLastLevelId(): string {
-    try {
-      return localStorage.getItem(STORAGE_KEYS.LAST_LEVEL_ID) || INITIAL_LEVELS[0].id;
-    } catch {
-      return INITIAL_LEVELS[0].id;
+    if (isStorageAvailable()) {
+      try {
+        return localStorage.getItem(STORAGE_KEYS.LAST_LEVEL_ID) || INITIAL_LEVELS[0].id;
+      } catch {
+        return INITIAL_LEVELS[0].id;
+      }
     }
+    return INITIAL_LEVELS[0].id;
   }
 
   /**
    * Salva o ID da última fase jogada
    */
   public saveLastLevelId(id: string): void {
+    if (!isStorageAvailable()) return;
     try {
       localStorage.setItem(STORAGE_KEYS.LAST_LEVEL_ID, id);
     } catch {}
@@ -243,10 +273,12 @@ class StorageManagerClass {
    * Obtém as configurações do jogo
    */
   public getSettings(): GameSettings {
-    try {
-      const data = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-      if (data) return JSON.parse(data);
-    } catch {}
+    if (isStorageAvailable()) {
+      try {
+        const data = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+        if (data) return JSON.parse(data);
+      } catch {}
+    }
     return { soundEnabled: true, fastSpeed: false };
   }
 
@@ -254,6 +286,7 @@ class StorageManagerClass {
    * Salva configurações do jogo
    */
   public saveSettings(settings: Partial<GameSettings>): void {
+    if (!isStorageAvailable()) return;
     try {
       const current = this.getSettings();
       localStorage.setItem(

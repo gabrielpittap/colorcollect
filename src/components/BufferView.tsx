@@ -76,7 +76,12 @@ export const BufferView: React.FC<BufferViewProps> = ({
                       color: colorDef.textHex,
                     }}
                   >
-                    {colorDef.letter}
+                    <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 drop-shadow-sm" viewBox="0 0 24 24" fill="none">
+                      <path d="M12 2L21 7.5L12 13L3 7.5L12 2Z" fill="white" fillOpacity="0.4" stroke="currentColor" strokeWidth="1" />
+                      <path d="M3 7.5L12 13V22L3 16.5V7.5Z" fill="black" fillOpacity="0.25" stroke="currentColor" strokeWidth="1" />
+                      <path d="M12 13L21 7.5V16.5L12 22V13Z" fill="black" fillOpacity="0.1" stroke="currentColor" strokeWidth="1" />
+                      <path d="M10.5 3L13.5 4.8V13.5L10.5 11.8V3Z" fill="#d97706" fillOpacity="0.75" />
+                    </svg>
                   </div>
 
                   {/* Contador Restante */}

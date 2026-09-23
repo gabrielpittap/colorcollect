@@ -19,6 +19,7 @@ export interface ContinuousEngineListener {
   onSupplyChanged?: (columns: SupplyBox[][]) => void;
   onStatusChanged?: (status: GameStatus) => void;
   onParticlesSpawned?: (particles: CanvasParticle[]) => void;
+  onBoxDeposited?: (colorId: string) => void;
 }
 
 export class ContinuousGameEngine {
@@ -31,6 +32,8 @@ export class ContinuousGameEngine {
   public totalInitialBlocks: number = 0;
   public robots: MiniBot[] = [];
   public particles: CanvasParticle[] = [];
+  public depositedBoxesQueue: { id: number; colorId: string }[] = [];
+  private depositCounter: number = 1;
 
   // Tabela de distâncias pré-calculada para seleção de alvo
   public distanceMatrix: DistanceMatrix;
@@ -438,7 +441,13 @@ export class ContinuousGameEngine {
           } else {
             // Saiu pela portinha lateral!
             SoundManager.playDeposit();
-            this.spawnExitDoorParticles(bot.x, bot.y, bot.cargoColor || '#ffffff');
+            const cargoColor = bot.cargoColor || '#ffffff';
+            this.spawnExitDoorParticles(bot.x, bot.y, cargoColor);
+            this.depositedBoxesQueue.push({
+              id: this.depositCounter++,
+              colorId: cargoColor,
+            });
+            this.listeners.onBoxDeposited?.(cargoColor);
 
             // Remove o robô que concluiu sua entrega
             this.robots.splice(i, 1);
@@ -556,6 +565,7 @@ export class ContinuousGameEngine {
     this.reservedCells.clear();
     this.particles = [];
     this.robots = [];
+    this.depositedBoxesQueue = [];
     this.spawnCooldowns = [0, 0, 0, 0, 0];
 
     this.grid = this.level.initialGrid.map((row) => [...row]);

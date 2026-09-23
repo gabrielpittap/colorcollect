@@ -154,16 +154,13 @@ export const GraphInspector: React.FC<GraphInspectorProps> = ({
                 >
                   <div className="flex items-center gap-2">
                     <span
-                      className="w-4 h-4 rounded font-black text-[10px] flex items-center justify-center"
+                      className="w-4 h-4 rounded-md shadow-sm border border-white/20"
                       style={{
                         backgroundColor: color?.hex,
-                        color: color?.textHex,
                       }}
-                    >
-                      {color?.letter || item.colorId}
-                    </span>
+                    />
                     <span className="font-medium text-slate-300">
-                      {color?.name || `Cor ${item.colorId}`}
+                      {color?.name || 'Cor Industrial'}
                     </span>
                   </div>
 
@@ -193,7 +190,7 @@ export const GraphInspector: React.FC<GraphInspectorProps> = ({
         <div className="p-3 rounded-xl bg-slate-950/40 border border-slate-800">
           <h4 className="text-xs font-bold text-slate-300 mb-2 flex items-center gap-1.5">
             <GitBranch className="w-3.5 h-3.5 text-amber-400" />
-            Relações de Bloqueio Direto (A bloqueia B)
+            Relações de Bloqueio Direto (Origem bloqueia Destino)
           </h4>
           {dependencyEdges.length === 0 ? (
             <p className="text-xs text-slate-500 italic p-2">
@@ -210,24 +207,18 @@ export const GraphInspector: React.FC<GraphInspectorProps> = ({
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-slate-900 border border-slate-800 text-slate-300"
                   >
                     <span
-                      className="px-1.5 py-0.5 rounded font-bold text-[10px]"
+                      className="w-3.5 h-3.5 rounded-sm border border-white/20 inline-block"
                       style={{
                         backgroundColor: cFrom?.hex,
-                        color: cFrom?.textHex,
                       }}
-                    >
-                      {cFrom?.letter || edge.fromColor}
-                    </span>
+                    />
                     <span className="text-slate-500">→</span>
                     <span
-                      className="px-1.5 py-0.5 rounded font-bold text-[10px]"
+                      className="w-3.5 h-3.5 rounded-sm border border-white/20 inline-block"
                       style={{
                         backgroundColor: cTo?.hex,
-                        color: cTo?.textHex,
                       }}
-                    >
-                      {cTo?.letter || edge.toColor}
-                    </span>
+                    />
                     <span className="text-[10px] text-slate-500">
                       ({edge.blockingCount})
                     </span>

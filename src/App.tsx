@@ -33,6 +33,8 @@ export default function App() {
   const [bufferSlots, setBufferSlots] = useState(engine.bufferSlots);
   const [supplyColumns, setSupplyColumns] = useState(engine.supplyColumns);
   const [gameStatus, setGameStatus] = useState<GameStatus>(engine.status);
+  const [collectedBlocks, setCollectedBlocks] = useState<number>(0);
+  const [totalBlocks, setTotalBlocks] = useState<number>(() => currentLevel.metadata.totalBlocks || 1);
 
   // 3. Controle dos Modais
   const [isLevelSelectOpen, setIsLevelSelectOpen] = useState(false);
@@ -41,7 +43,10 @@ export default function App() {
   // Inicializa o motor sempre que a fase atual mudar
   const initEngine = useCallback((lvl: LevelData) => {
     const newEngine = new ContinuousGameEngine(lvl, {
-      onGridChanged: (newGrid) => setGrid([...newGrid.map((r) => [...r])]),
+      onGridChanged: (newGrid) => {
+        setGrid([...newGrid.map((r) => [...r])]);
+        setCollectedBlocks(newEngine.totalCollectedBlocks);
+      },
       onBufferChanged: (newSlots) => setBufferSlots([...newSlots]),
       onSupplyChanged: (newCols) => setSupplyColumns([...newCols]),
       onStatusChanged: (newStatus) => {
@@ -63,6 +68,8 @@ export default function App() {
     setBufferSlots(newEngine.bufferSlots);
     setSupplyColumns(newEngine.supplyColumns);
     setGameStatus(newEngine.status);
+    setCollectedBlocks(0);
+    setTotalBlocks(newEngine.totalInitialBlocks);
     StorageManager.saveLastLevelId(lvl.id);
   }, []);
 
@@ -85,6 +92,7 @@ export default function App() {
     setBufferSlots([...engine.bufferSlots]);
     setSupplyColumns([...engine.supplyColumns]);
     setGameStatus(engine.status);
+    setCollectedBlocks(0);
   };
 
   // Ação: Próxima Fase
@@ -139,6 +147,8 @@ export default function App() {
       {/* Barra de Topo do Jogo */}
       <GameHeader
         currentLevel={currentLevel}
+        collectedBlocks={collectedBlocks}
+        totalBlocks={totalBlocks}
         isSoundEnabled={isSoundEnabled}
         onToggleSound={handleToggleSound}
         onRestart={handleRestart}

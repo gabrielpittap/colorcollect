@@ -115,8 +115,7 @@ export class ImagePixelizer {
 
       customPalette[key] = {
         id: key,
-        letter: key,
-        name: DEFAULT_PALETTE[key]?.name || `Cor ${key}`,
+        name: DEFAULT_PALETTE[key]?.name || `Cor Industrial`,
         hex,
         textHex: isDark ? '#ffffff' : '#0f172a',
       };
@@ -181,8 +180,8 @@ export class ImagePixelizer {
   private static createDummyMatrix(w: number, h: number): PixelizeResult {
     const grid: BoardGrid = Array.from({ length: h }, (_, y) =>
       Array.from({ length: w }, (_, x) => {
-        if (y === 0 || y === h - 1 || x === 0 || x === w - 1) return 'A';
-        return 'B';
+        if (y === 0 || y === h - 1 || x === 0 || x === w - 1) return '#4AF';
+        return '#FC4';
       })
     );
     return {

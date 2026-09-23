@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BoardGrid, ColorDef, LevelData } from '../core/Types';
-import { DEFAULT_PALETTE, COLOR_KEYS } from '../core/Colors';
+import { DEFAULT_PALETTE, COLOR_KEYS, getColorDef } from '../core/Colors';
 import { EdgeDetector } from '../core/EdgeDetector';
 import {
   X,
@@ -46,7 +46,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
   // Modo de edição: 'SUPPLY' (disposição das caixas) ou 'GRID' (desenhar matriz)
   const [activeTab, setActiveTab] = useState<'SUPPLY' | 'GRID'>('SUPPLY');
-  const [selectedBrushColor, setSelectedBrushColor] = useState<string>('A');
+  const [selectedBrushColor, setSelectedBrushColor] = useState<string>('#4AF');
   const [isMouseDown, setIsMouseDown] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
 
@@ -94,8 +94,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   // Handlers para o Deck de Suprimento
   const handleAddBox = (colIdx: number) => {
     const newLvl = JSON.parse(JSON.stringify(editedLevel)) as LevelData;
-    // Pega a primeira cor ativa ou 'A'
-    const colorId = activeColorKeys[0] || 'A';
+    // Pega a primeira cor ativa ou '#4AF'
+    const colorId = activeColorKeys[0] || '#4AF';
     newLvl.initialSupply[colIdx].push({
       colorId,
       capacity: 10,
@@ -329,7 +329,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
               {/* Status por Cor */}
               <div className="flex flex-wrap gap-2 text-[11px]">
                 {activeColorKeys.map((c) => {
-                  const colorDef = editedLevel.palette[c] || DEFAULT_PALETTE[c];
+                  const colorDef = getColorDef(editedLevel.palette, c);
                   const inGrid = gridColorCounts[c] || 0;
                   const inDeck = deckColorCounts[c] || 0;
                   const isMatch = inGrid === inDeck;
@@ -345,9 +345,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                     >
                       <span
                         className="w-2.5 h-2.5 rounded-full inline-block"
-                        style={{ backgroundColor: colorDef?.hex || '#ffffff' }}
+                        style={{ backgroundColor: colorDef.hex }}
                       />
-                      <span className="font-black">{colorDef?.name || c}:</span>
+                      <span className="font-black">{colorDef.name}:</span>
                       <span className="font-mono">
                         {inDeck}/{inGrid}
                       </span>
@@ -458,7 +458,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                                 >
                                   {Object.keys(DEFAULT_PALETTE).map((k) => (
                                     <option key={k} value={k}>
-                                      {DEFAULT_PALETTE[k].name} ({k})
+                                      {DEFAULT_PALETTE[k].name}
                                     </option>
                                   ))}
                                 </select>
@@ -528,7 +528,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                       }}
                       title={color.name}
                     >
-                      {color.letter}
+                      {isSelected ? '✓' : ''}
                     </button>
                   );
                 })}
@@ -574,9 +574,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                           backgroundColor: colorDef?.hex,
                           color: colorDef?.textHex,
                         }}
-                      >
-                        {cell}
-                      </div>
+                      />
                     );
                   })
                 )}

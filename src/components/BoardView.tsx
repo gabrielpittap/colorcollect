@@ -60,12 +60,10 @@ export const BoardView: React.FC<BoardViewProps> = ({ grid, palette }) => {
                   backgroundColor: colorDef?.hex || '#64748b',
                   color: colorDef?.textHex || '#ffffff',
                 }}
-                title={`(${x}, ${y}) Cor: ${colorDef?.name || cell} ${
+                title={`(${x}, ${y}) Cor: ${colorDef?.name || ''} ${
                   isExposed ? '[Borda Exposta]' : '[Oculto no Miolo]'
                 }`}
-              >
-                {width > 25 ? null : (colorDef?.letter || cell)}
-              </div>
+              />
             );
           })
         )}

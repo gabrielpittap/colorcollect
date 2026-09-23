@@ -1,69 +1,114 @@
 import { ColorDef } from './Types';
 
 /**
- * Paleta padrão de alta distinção visual e contraste.
- * Cada cor possui uma letra para representação matricial pura (CLI/Matriz).
+ * Paleta padrão industrial de alta distinção visual e contraste.
+ * Cada cor possui um identificador interno hexadecimal de 3 dígitos (ex: #4AF, #FC4).
+ * O identificador é estritamente técnico e NUNCA exibido ao jogador.
  */
 export const DEFAULT_PALETTE: Record<string, ColorDef> = {
-  A: {
-    id: 'A',
-    letter: 'A',
+  '#4AF': {
+    id: '#4AF',
+    hex: '#4AF',
     name: 'Azul Ciano',
-    hex: '#06b6d4',
     textHex: '#083344',
   },
-  B: {
-    id: 'B',
-    letter: 'B',
+  '#FC4': {
+    id: '#FC4',
+    hex: '#FC4',
     name: 'Amarelo Ouro',
-    hex: '#eab308',
     textHex: '#422006',
   },
-  C: {
-    id: 'C',
-    letter: 'C',
+  '#F6C': {
+    id: '#F6C',
+    hex: '#F6C',
     name: 'Rosa Magenta',
-    hex: '#ec4899',
-    textHex: '#500724',
+    textHex: '#ffffff',
   },
-  D: {
-    id: 'D',
-    letter: 'D',
+  '#4D8': {
+    id: '#4D8',
+    hex: '#4D8',
     name: 'Verde Esmeralda',
-    hex: '#10b981',
     textHex: '#022c22',
   },
-  E: {
-    id: 'E',
-    letter: 'E',
+  '#F84': {
+    id: '#F84',
+    hex: '#F84',
     name: 'Laranja Radiante',
-    hex: '#f97316',
     textHex: '#431407',
   },
-  F: {
-    id: 'F',
-    letter: 'F',
+  '#A4F': {
+    id: '#A4F',
+    hex: '#A4F',
     name: 'Roxo Elétrico',
-    hex: '#8b5cf6',
-    textHex: '#2e1065',
+    textHex: '#ffffff',
   },
-  G: {
-    id: 'G',
-    letter: 'G',
+  '#FFF': {
+    id: '#FFF',
+    hex: '#FFF',
     name: 'Branco Puro',
-    hex: '#f8fafc',
     textHex: '#0f172a',
   },
-  H: {
-    id: 'H',
-    letter: 'H',
-    name: 'Grafite / Preto',
-    hex: '#334155',
+  '#38C': {
+    id: '#38C',
+    hex: '#38C',
+    name: 'Grafite Metálico',
     textHex: '#f8fafc',
+  },
+  '#F44': {
+    id: '#F44',
+    hex: '#F44',
+    name: 'Vermelho Coral',
+    textHex: '#ffffff',
   },
 };
 
+/**
+ * Mapeamento de retrocompatibilidade para dados legados (A-H -> 3-digit hex)
+ */
+export const LEGACY_LETTER_MAP: Record<string, string> = {
+  A: '#4AF',
+  B: '#FC4',
+  C: '#F6C',
+  D: '#4D8',
+  E: '#F84',
+  F: '#A4F',
+  G: '#FFF',
+  H: '#38C',
+};
+
+/**
+ * Chaves das cores principais disponíveis no sistema
+ */
 export const COLOR_KEYS = [
-  'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 
-  'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
+  '#4AF',
+  '#FC4',
+  '#F6C',
+  '#4D8',
+  '#F84',
+  '#A4F',
+  '#FFF',
+  '#38C',
+  '#F44',
 ];
+
+/**
+ * Converte qualquer ID de cor (seja legado 'A' ou '#4AF') para o identificador 3-digit hex oficial
+ */
+export function normalizeColorId(colorId: string): string {
+  if (DEFAULT_PALETTE[colorId]) return colorId;
+  if (LEGACY_LETTER_MAP[colorId]) return LEGACY_LETTER_MAP[colorId];
+  return colorId;
+}
+
+/**
+ * Obtém a definição de cor a partir de qualquer identificador ou fallback
+ */
+export function getColorDef(palette: Record<string, ColorDef>, colorId: string): ColorDef {
+  const normalized = normalizeColorId(colorId);
+  return palette[normalized] || DEFAULT_PALETTE[normalized] || {
+    id: normalized,
+    hex: normalized.startsWith('#') ? normalized : '#94a3b8',
+    name: 'Cor Industrial',
+    textHex: '#ffffff',
+  };
+}
