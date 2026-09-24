@@ -30,3 +30,6 @@ dist-ssr
 *.sw?
 
 .vercel
+
+# Temporary screenshot captures
+*.png

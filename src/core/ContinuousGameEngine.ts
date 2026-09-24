@@ -47,6 +47,17 @@ export class ContinuousGameEngine {
   // Coordenadas mundiais das docas dos slots
   private dockPositions: { x: number; y: number }[] = [];
 
+  // Fila de robôs organizadores na esteira (IDs na ordem de atendimento)
+  public conveyorQueue: string[] = [];
+
+  // Posição de descarregamento na ponta da esteira
+  public conveyorTip = {
+    x: 375,
+    y: 280,
+    dropX: 375,
+    dropY: 300,
+  };
+
   // Coordenadas da porta lateral direita de saída
   public rightDoor = {
     x: 390,
@@ -132,7 +143,8 @@ export class ContinuousGameEngine {
     offsetX: number,
     offsetY: number,
     canvasWidth: number,
-    canvasHeight: number
+    canvasHeight: number,
+    conveyorTip?: { x: number; y: number; dropX: number; dropY: number }
   ) {
     this.dockPositions = docks;
     this.gridBounds.cellPixelSize = cellPixelSize;
@@ -141,8 +153,39 @@ export class ContinuousGameEngine {
     this.canvasWidth = canvasWidth;
     this.canvasHeight = canvasHeight;
 
+    if (conveyorTip) {
+      this.conveyorTip = conveyorTip;
+    } else {
+      const topWallH = Math.min(48, Math.max(32, Math.floor(canvasHeight * 0.08)));
+      const dockConsoleH = Math.min(76, Math.max(54, Math.floor(canvasHeight * 0.125)));
+      const conveyorW = Math.min(54, Math.max(38, Math.floor(canvasWidth * 0.125)));
+      const conveyorH = Math.round((canvasHeight - topWallH - dockConsoleH) * 0.5);
+      const tipX = canvasWidth - conveyorW / 2 - 2;
+      const tipY = topWallH + conveyorH;
+      const botRadius = Math.max(9.5, Math.min(23, cellPixelSize * 0.60));
+      this.conveyorTip = {
+        x: tipX,
+        y: tipY,
+        dropX: tipX,
+        dropY: tipY + botRadius + 4,
+      };
+    }
+
     this.rightDoor.x = canvasWidth - 14;
-    this.rightDoor.y = offsetY + (this.level.height * cellPixelSize) / 2;
+    this.rightDoor.y = this.conveyorTip.dropY;
+  }
+
+  /**
+   * Retorna a coordenada mundial do slot k da fila de espera da esteira
+   * Os robôs se enfileiram verticalmente abaixo da ponta da esteira
+   */
+  public getQueueSlotWorld(queueIndex: number): { x: number; y: number } {
+    const botRadius = Math.max(9.5, Math.min(23, this.gridBounds.cellPixelSize * 0.60));
+    const queueSpacing = Math.round(botRadius * 1.5 + 4);
+    return {
+      x: this.conveyorTip.dropX,
+      y: this.conveyorTip.dropY + queueIndex * queueSpacing,
+    };
   }
 
   /**
@@ -238,15 +281,8 @@ export class ContinuousGameEngine {
       const box = slot.box;
       if (!box || box.remaining <= 0) continue;
 
-      // Conta quantos robôs já estão a caminho (buscando ou colhendo) para esta caixa.
-      // Robôs que já estão 'EXITING' já decrementaram box.remaining e não devem travar novos spawns.
-      const inFlightBots = this.robots.filter(
-        (r) => r.slotIndex === slot.index && (r.status === 'SEEKING' || r.status === 'HARVESTING')
-      );
-      const unspawnedNeeded = box.remaining - inFlightBots.length;
-
-      // Se ainda precisamos de robôs e o cooldown permitiu
-      if (unspawnedNeeded > 0 && this.spawnCooldowns[slot.index] <= 0) {
+      // Se ainda precisamos despachar robôs desta caixa e o cooldown permitiu
+      if (this.spawnCooldowns[slot.index] <= 0) {
         // Encontra blocos expostos da cor desta caixa que não estão reservados
         const exposedCells = EdgeDetector.getExposedCells(this.grid, box.colorId);
         const availableTargets = exposedCells.filter(
@@ -309,6 +345,7 @@ export class ContinuousGameEngine {
             const bot: MiniBot = {
               id: `bot_${this.botCounter++}`,
               slotIndex: slot.index,
+              boxId: box.id,
               colorId: box.colorId,
               status: 'SEEKING',
               x: dockWorld.x,
@@ -330,6 +367,16 @@ export class ContinuousGameEngine {
             this.robots.push(bot);
             // Intervalo configurável entre spawns para ritmo dinâmico
             this.spawnCooldowns[slot.index] = this.tuning.spawnCooldown;
+
+            // Subtrai imediatamente o número da dock buffer
+            box.remaining = Math.max(0, box.remaining - 1);
+
+            // Ao chegar em zero (todos estão em trânsito), a dock buffer já libera!
+            if (box.remaining === 0) {
+              SoundManager.playBoxComplete();
+              slot.box = null;
+            }
+            this.notifyBuffer();
           }
         }
       }
@@ -341,12 +388,9 @@ export class ContinuousGameEngine {
    */
   private updateRobots(dt: number) {
     let gridDirty = false;
-    let bufferDirty = false;
 
     for (let i = this.robots.length - 1; i >= 0; i--) {
       const bot = this.robots[i];
-      const slot = this.bufferSlots[bot.slotIndex];
-      const box = slot?.box;
 
       switch (bot.status) {
         case 'SEEKING': {
@@ -360,12 +404,12 @@ export class ContinuousGameEngine {
             // Ajusta o ângulo estritamente em eixos ortogonais (90 graus)
             if (Math.abs(dx) > Math.abs(dy)) {
               bot.angle = dx > 0 ? 0 : Math.PI;
-            } else {
+            } else if (Math.abs(dy) > 0.001) {
               bot.angle = dy > 0 ? Math.PI / 2 : -Math.PI / 2;
             }
 
             const step = bot.speed * dt;
-            if (dist <= step || dist < 3) {
+            if (dist <= step || dist < 2) {
               bot.x = wp.x;
               bot.y = wp.y;
               bot.waypointIndex++;
@@ -389,15 +433,9 @@ export class ContinuousGameEngine {
               // 1. Remove o bloco do tabuleiro (agora a célula vira null e fica transitável!)
               this.grid[bot.targetGridY][bot.targetGridX] = null;
               this.reservedCells.delete(`${bot.targetGridX},${bot.targetGridY}`);
-
-              // 2. Decrementa a caixa do slot
-              if (box) {
-                box.remaining = Math.max(0, box.remaining - 1);
-                bufferDirty = true;
-              }
               this.totalCollectedBlocks++;
 
-              // 3. Efeitos de colheita
+              // 2. Efeitos de colheita
               const targetWorld = this.gridToWorld(bot.targetGridX, bot.targetGridY);
               this.spawnBlockParticles(targetWorld.x, targetWorld.y, targetColor);
               SoundManager.playHarvest(1 + (this.totalCollectedBlocks % 15) * 0.04);
@@ -406,7 +444,14 @@ export class ContinuousGameEngine {
               bot.currentGridX = bot.targetGridX;
               bot.currentGridY = bot.targetGridY;
 
-              // 4. Calcula rota ortogonal até a PORTINHA LATERAL mais próxima!
+              // 3. Adiciona o robô à fila de descarregamento da esteira
+              this.conveyorQueue.push(bot.id);
+              const queueIndex = this.conveyorQueue.length - 1;
+              bot.queueIndex = queueIndex;
+              const targetSlot = this.getQueueSlotWorld(queueIndex);
+
+              // 4. Calcula rota estritamente ortogonal (Manhattan) até o slot da fila:
+              // - BFS ortogonal do bloco até a borda direita/saída do grid
               const exitPath = Pathfinder.findPathToSideExit(
                 bot.currentGridX,
                 bot.currentGridY,
@@ -415,18 +460,24 @@ export class ContinuousGameEngine {
                 this.level.height
               );
 
-              // Converte caminho até a porta lateral direita em coordenadas do Canvas
-              const exitWaypoints = exitPath.map((p) => {
-                if (p.x >= this.level.width) return { x: this.rightDoor.x, y: this.rightDoor.y };
-                return this.gridToWorld(p.x, p.y);
-              });
+              // Converte caminho do grid para coordenadas reais do Canvas
+              const gridWorldPoints = exitPath.map((p) => this.gridToWorld(p.x, p.y));
+              const lastGridPoint = gridWorldPoints.length > 0
+                ? gridWorldPoints[gridWorldPoints.length - 1]
+                : targetWorld;
 
-              // Ponto final de penetração na porta para o robô sair da tela
-              exitWaypoints.push({ x: this.rightDoor.x + 8, y: this.rightDoor.y });
+              // Rota Manhattan sem diagonais:
+              // Primeiro alinha em X até o corredor da esteira (targetSlot.x),
+              // depois alinha em Y até a posição da fila (targetSlot.y)
+              const worldWaypoints = [...gridWorldPoints];
+              if (Math.abs(lastGridPoint.x - targetSlot.x) > 1) {
+                worldWaypoints.push({ x: targetSlot.x, y: lastGridPoint.y });
+              }
+              worldWaypoints.push({ x: targetSlot.x, y: targetSlot.y });
 
-              bot.waypoints = exitWaypoints;
+              bot.waypoints = worldWaypoints;
               bot.waypointIndex = 0;
-              bot.status = 'EXITING';
+              bot.status = 'WAITING_IN_QUEUE';
               gridDirty = true;
             } else {
               // Bloco já sumiu, libera
@@ -437,22 +488,23 @@ export class ContinuousGameEngine {
           break;
         }
 
-        case 'EXITING': {
-          // Segue rota ortogonal até sair pela portinha lateral
+        case 'WAITING_IN_QUEUE': {
+          // Segue os waypoints ortogonais até o seu slot na fila
           if (bot.waypointIndex < bot.waypoints.length) {
             const wp = bot.waypoints[bot.waypointIndex];
             const dx = wp.x - bot.x;
             const dy = wp.y - bot.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
 
+            // Ajusta o ângulo estritamente em eixos ortogonais (90 graus)
             if (Math.abs(dx) > Math.abs(dy)) {
               bot.angle = dx > 0 ? 0 : Math.PI;
-            } else {
+            } else if (Math.abs(dy) > 0.001) {
               bot.angle = dy > 0 ? Math.PI / 2 : -Math.PI / 2;
             }
 
             const step = bot.speed * dt;
-            if (dist <= step || dist < 3) {
+            if (dist <= step || dist < 2) {
               bot.x = wp.x;
               bot.y = wp.y;
               bot.waypointIndex++;
@@ -461,28 +513,67 @@ export class ContinuousGameEngine {
               bot.y += (dy / dist) * step;
             }
           } else {
-            // Saiu pela portinha lateral!
+            // Chegou ao seu slot na fila!
+            // Se for o primeiro da fila (posição 0, na ponta da esteira):
+            if (this.conveyorQueue[0] === bot.id) {
+              bot.status = 'DEPOSITING';
+              bot.actionTimer = this.tuning.harvestTime; // Demora o mesmo tempo para deixar a caixa que levou para colher
+              bot.angle = -Math.PI / 2; // Voltado para cima, em direção à ponta da esteira
+            } else {
+              // Permanece aguardando na fila, voltado para cima (em direção à esteira)
+              bot.angle = -Math.PI / 2;
+            }
+          }
+          break;
+        }
+
+        case 'DEPOSITING': {
+          bot.angle = -Math.PI / 2; // Apontado para cima (ponta da esteira)
+          bot.actionTimer -= dt;
+          if (bot.actionTimer <= 0) {
+            // Deixou a caixa na ponta da esteira!
             SoundManager.playDeposit();
             const cargoColor = bot.cargoColor || '#ffffff';
-            this.spawnExitDoorParticles(bot.x, bot.y, cargoColor);
+            this.spawnExitDoorParticles(this.conveyorTip.x, this.conveyorTip.y, cargoColor);
             this.depositedBoxesQueue.push({
               id: this.depositCounter++,
               colorId: cargoColor,
             });
             this.listeners.onBoxDeposited?.(cargoColor);
 
-            // Remove o robô que concluiu sua entrega
-            this.robots.splice(i, 1);
+            bot.cargoColor = null;
 
-            // Se a caixa zerou e não há mais robôs desse slot na tela, libera a doca!
-            if (box && box.remaining === 0) {
-              const remainingBotsForSlot = this.robots.filter((r) => r.slotIndex === bot.slotIndex);
-              if (remainingBotsForSlot.length === 0) {
-                SoundManager.playBoxComplete();
-                slot.box = null;
-                bufferDirty = true;
+            // Remove o robô da frente da fila
+            if (this.conveyorQueue[0] === bot.id) {
+              this.conveyorQueue.shift();
+            }
+
+            // Atualiza todos os robôs restantes na fila para avançarem um slot para a direita
+            for (let q = 0; q < this.conveyorQueue.length; q++) {
+              const qBotId = this.conveyorQueue[q];
+              const qBot = this.robots.find((r) => r.id === qBotId);
+              if (qBot) {
+                qBot.queueIndex = q;
+                const nextSlot = this.getQueueSlotWorld(q);
+                qBot.waypoints = [{ x: nextSlot.x, y: nextSlot.y }];
+                qBot.waypointIndex = 0;
               }
             }
+
+            // "Deixou a caixa aí sim ele vira e sai pela lateral direita (não desaparece, vai andando pra direita até sumir)"
+            bot.status = 'EXITING';
+            bot.angle = 0; // Vira para a direita
+          }
+          break;
+        }
+
+        case 'EXITING': {
+          bot.angle = 0; // Anda para a direita
+          bot.x += bot.speed * dt;
+
+          // Só desaparece quando sair completamente pela lateral direita
+          if (bot.x >= this.canvasWidth + 24) {
+            this.robots.splice(i, 1);
           }
           break;
         }
@@ -490,7 +581,6 @@ export class ContinuousGameEngine {
     }
 
     if (gridDirty) this.notifyGrid();
-    if (bufferDirty) this.notifyBuffer();
   }
 
   private updateParticles(dt: number) {
@@ -587,6 +677,7 @@ export class ContinuousGameEngine {
     this.reservedCells.clear();
     this.particles = [];
     this.robots = [];
+    this.conveyorQueue = [];
     this.depositedBoxesQueue = [];
     const bufferCount = this.level.bufferSize || 5;
     this.spawnCooldowns = Array.from({ length: bufferCount }, () => 0);

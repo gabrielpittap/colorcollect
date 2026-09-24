@@ -83,11 +83,12 @@ export interface SolverResult {
 // Tipos do Motor de Simulação Contínua & Robôs Organizadores
 // -------------------------------------------------------------
 
-export type RobotState = 'SEEKING' | 'HARVESTING' | 'EXITING';
+export type RobotState = 'SEEKING' | 'HARVESTING' | 'WAITING_IN_QUEUE' | 'DEPOSITING' | 'EXITING';
 
 export interface MiniBot {
   id: string;
   slotIndex: number;
+  boxId: string;
   colorId: string;
   status: RobotState;
   
@@ -113,6 +114,9 @@ export interface MiniBot {
   // Rota ortogonal sendo percorrida (em pixels do canvas)
   waypoints: { x: number; y: number }[];
   waypointIndex: number;
+
+  // Posição na fila de espera da esteira (-1 se não estiver na fila)
+  queueIndex?: number;
 
   // Temporizadores de animação
   actionTimer: number; // segundos no estado atual

@@ -55,13 +55,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
       }
 
-      // 3. Atualizar caixas que foram depositadas na saída pelo robô
+      // 3. Atualizar caixas que foram depositadas na esteira pelo robô
       while (engine.depositedBoxesQueue.length > 0) {
         const dep = engine.depositedBoxesQueue.shift()!;
         conveyorBoxes.push({
           id: dep.id,
-          x: engine.rightDoor.x,
-          y: Math.max(65, engine.rightDoor.y),
+          x: engine.conveyorTip.x,
+          y: engine.conveyorTip.y - 4,
           colorId: dep.colorId,
           speed: currentConveyorSpeed,
         });
@@ -91,6 +91,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const topWallH = Math.min(48, Math.max(32, Math.floor(height * 0.08)));
       const dockConsoleH = Math.min(76, Math.max(54, Math.floor(height * 0.125)));
 
+      // Redução da esteira pela metade!
+      const totalFloorH = height - topWallH - dockConsoleH;
+      const conveyorH = Math.round(totalFloorH * 0.5);
+      const conveyorTipY = topWallH + conveyorH;
+      const conveyorCenterX = Math.round(width - conveyorW / 2 - 2);
+
       // Espaço do tabuleiro no piso de concreto da fábrica
       const availableBoardW = Math.max(20, width - leftWallW - conveyorW - 20);
       const availableBoardH = Math.max(20, height - topWallH - dockConsoleH - 24);
@@ -105,6 +111,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const offsetX = Math.round(leftWallW + 8 + (availableBoardW - boardPixelW) / 2);
       const offsetY = Math.round(topWallH + 8 + (availableBoardH - boardPixelH) / 2);
 
+      const botRadius = Math.max(9.5, Math.min(23, cellSize * 0.60));
+      const dropStationX = conveyorCenterX;
+      const dropStationY = Math.round(conveyorTipY + botRadius + 4);
+
       // Posições das Docas no console industrial inferior
       const dockCount = engine.bufferSlots.length || 5;
       const dockSpacing = (width - 16) / dockCount;
@@ -115,9 +125,20 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }));
 
       // Notifica o motor das métricas espaciais
-      engine.updateLayoutMetrics(dockPositions, cellSize, offsetX, offsetY, width, height);
-      engine.rightDoor.x = width - conveyorW / 2 - 2;
-      engine.rightDoor.y = offsetY + (gridH * cellSize) / 2;
+      engine.updateLayoutMetrics(
+        dockPositions,
+        cellSize,
+        offsetX,
+        offsetY,
+        width,
+        height,
+        {
+          x: conveyorCenterX,
+          y: conveyorTipY,
+          dropX: dropStationX,
+          dropY: dropStationY,
+        }
+      );
 
       // Ponto de fuga / centro horizontal da câmera
       const cameraCenterX = width * 0.48;
@@ -130,12 +151,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         topWallH,
         leftWallW,
         conveyorW,
+        conveyorH,
         dockConsoleH,
         currentTime,
         offsetX,
         offsetY,
         boardPixelW,
-        boardPixelH
+        boardPixelH,
+        dropStationY
       );
 
       // 7. Sombra de Contato Global do Aglomerado de Caixas no Piso
@@ -156,6 +179,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         width,
         height,
         conveyorW,
+        conveyorH,
         topWallH,
         dockConsoleH,
         currentTime,
@@ -264,28 +288,30 @@ function drawFactoryEnvironment(
   topWallH: number,
   leftWallW: number,
   conveyorW: number,
+  conveyorH: number,
   dockConsoleH: number,
   time: number,
   ox: number,
   oy: number,
   bw: number,
-  bh: number
+  bh: number,
+  dropStationY: number
 ) {
   const floorX = leftWallW;
   const floorY = topWallH;
-  const floorW = w - leftWallW - conveyorW;
   const floorH = h - topWallH - dockConsoleH;
 
-  // A. Piso de Concreto Industrial da Fábrica (Piso modular com iluminação quente)
+  // A. Piso de Concreto Industrial da Fábrica (Piso estendido para toda a fábrica)
   const floorGrad = ctx.createLinearGradient(0, floorY, 0, floorY + floorH);
   floorGrad.addColorStop(0, '#2e3745'); // Sombra projetada da parede superior
   floorGrad.addColorStop(0.3, '#262e3b');
   floorGrad.addColorStop(0.7, '#202733');
   floorGrad.addColorStop(1, '#171c26'); // Sombra perto do console
   ctx.fillStyle = floorGrad;
-  ctx.fillRect(floorX, floorY, floorW, floorH);
+  ctx.fillRect(floorX, floorY, w - floorX, floorH);
 
   // B. Juntas de Lajes Modulares de Concreto (Slabs em proporção industrial harmoniosa)
+  const floorW = w - leftWallW - conveyorW;
   const slabCols = 4;
   const slabRows = 5;
   const slabW = floorW / slabCols;
@@ -336,35 +362,45 @@ function drawFactoryEnvironment(
     spot.addColorStop(0.55, 'rgba(255, 246, 225, 0.02)');
     spot.addColorStop(1, 'transparent');
     ctx.fillStyle = spot;
-    ctx.fillRect(floorX, floorY, floorW, floorH);
+    ctx.fillRect(floorX, floorY, w - floorX, floorH);
   }
 
-  // D. Marcas de Frenagem / Curva de Pneu no Piso (Tire Skid Marks dos AGVs)
-  ctx.strokeStyle = 'rgba(10, 14, 22, 0.28)';
-  ctx.lineWidth = 2.8;
-  ctx.lineCap = 'round';
+  // D. Faixa Guia da Fila de Espera (Vertical abaixo da esteira)
+  const queueX = w - conveyorW / 2 - 2;
+  ctx.strokeStyle = 'rgba(234, 179, 8, 0.16)'; // Amarelo industrial sutil
+  ctx.lineWidth = 1.8;
+  ctx.setLineDash([4, 4]);
   ctx.beginPath();
-  // Curvas de manobra das docas até a área de coleta
-  ctx.moveTo(ox + bw * 0.18, floorY + floorH - 24);
-  ctx.quadraticCurveTo(ox + bw * 0.25, floorY + floorH - 52, ox + bw * 0.38, floorY + floorH - 34);
-  ctx.moveTo(ox + bw * 0.42, floorY + floorH - 28);
-  ctx.quadraticCurveTo(ox + bw * 0.55, floorY + floorH - 60, ox + bw * 0.68, floorY + floorH - 30);
-  // Curva de saída em direção à esteira
-  ctx.moveTo(ox + bw * 0.75, oy + bh * 0.65);
-  ctx.quadraticCurveTo(w - conveyorW - 32, oy + bh * 0.70, w - conveyorW - 8, oy + bh * 0.48);
+  // Linha da fila de espera vertical que sobe até a ponta da esteira
+  ctx.moveTo(queueX, dropStationY + 14);
+  ctx.lineTo(queueX, floorY + floorH - 12);
   ctx.stroke();
+  ctx.setLineDash([]);
 
-  // E. Setas Industriais Direcionais no Piso (>>>) apontando para a esteira
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.085)';
-  const arrowX = w - conveyorW - 20;
-  const arrowY = floorY + floorH * 0.68;
-  for (let s = 0; s < 2; s++) {
-    const py = arrowY + s * 16;
+  // Chevrons apontando para cima (^^) em direção à ponta da esteira
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+  for (let s = 1; s <= 2; s++) {
+    const py = dropStationY + s * 34;
     ctx.beginPath();
-    ctx.moveTo(arrowX - 8, py - 6);
-    ctx.lineTo(arrowX + 2, py);
-    ctx.lineTo(arrowX - 8, py + 6);
-    ctx.lineTo(arrowX - 3, py);
+    ctx.moveTo(queueX - 5, py + 4);
+    ctx.lineTo(queueX, py - 2);
+    ctx.lineTo(queueX + 5, py + 4);
+    ctx.lineTo(queueX, py + 1);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // E. Setas Industriais Direcionais no Piso (>>>) apontando para a saída lateral direita
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.09)';
+  const arrowX = w - 12;
+  const arrowY = dropStationY;
+  for (let s = 0; s < 2; s++) {
+    const px = arrowX - s * 14;
+    ctx.beginPath();
+    ctx.moveTo(px - 6, arrowY - 5);
+    ctx.lineTo(px + 2, arrowY);
+    ctx.lineTo(px - 6, arrowY + 5);
+    ctx.lineTo(px - 2, arrowY);
     ctx.closePath();
     ctx.fill();
   }
@@ -618,6 +654,7 @@ function drawConveyorAndPortal(
   w: number,
   h: number,
   conveyorW: number,
+  conveyorH: number,
   topWallH: number,
   dockConsoleH: number,
   time: number,
@@ -627,7 +664,6 @@ function drawConveyorAndPortal(
 ) {
   const conveyorX = w - conveyorW;
   const conveyorY = topWallH;
-  const conveyorH = h - topWallH - dockConsoleH;
 
   ctx.save();
 
@@ -675,8 +711,15 @@ function drawConveyorAndPortal(
     ctx.fill();
   }
 
+  // Terminal mecânico chanfrado na ponta da esteira (placa de entrada e mancais)
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(conveyorX - 1, conveyorY + conveyorH - 4, conveyorW + 2, 6);
+  ctx.fillStyle = '#eab308';
+  ctx.fillRect(conveyorX, conveyorY + conveyorH - 2, conveyorW, 2.5);
+
   // D. Caixas Transportadas na Esteira (3D com acabamento de brinquedo)
   for (const box of conveyorBoxes) {
+    if (box.y > conveyorY + conveyorH + 8) continue;
     const colorDef = getColorDef(palette, box.colorId);
     const boxSize = Math.min(26, Math.max(18, Math.round(rollerW * 0.82)));
     const bx = Math.round(rollerX + (rollerW - boxSize) / 2);
@@ -1128,8 +1171,8 @@ function drawAGVRobot(
   const isMovingLeft = Math.abs(Math.abs(a) - Math.PI) < 0.4;
   const isMovingRight = !isMovingDown && !isMovingUp && !isMovingLeft;
 
-  // Efeito de suspensão na colheita
-  const bounce = bot.status === 'HARVESTING' ? Math.sin(bot.actionTimer * 28) * 2.2 : 0;
+  // Efeito de suspensão na colheita e no descarregamento
+  const bounce = (bot.status === 'HARVESTING' || bot.status === 'DEPOSITING') ? Math.sin(bot.actionTimer * 28) * 2.2 : 0;
   const bx = bot.x;
   const by = bot.y + bounce;
 
