@@ -113,7 +113,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       const botRadius = Math.max(9.5, Math.min(23, cellSize * 0.60));
       const dropStationX = conveyorCenterX;
-      const dropStationY = Math.round(conveyorTipY + botRadius + 4);
+      const dropStationY = Math.round(conveyorTipY + botRadius * 1.5 + 8);
+      const safeAisleX = Math.round(width - conveyorW - botRadius - 6);
 
       // Posições das Docas no console industrial inferior
       const dockCount = engine.bufferSlots.length || 5;
@@ -137,6 +138,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           y: conveyorTipY,
           dropX: dropStationX,
           dropY: dropStationY,
+          safeAisleX: safeAisleX,
+          conveyorW: conveyorW,
         }
       );
 

@@ -55,7 +55,9 @@ export class ContinuousGameEngine {
     x: 375,
     y: 280,
     dropX: 375,
-    dropY: 300,
+    dropY: 315,
+    safeAisleX: 335,
+    conveyorW: 46,
   };
 
   // Coordenadas da porta lateral direita de saída
@@ -144,7 +146,7 @@ export class ContinuousGameEngine {
     offsetY: number,
     canvasWidth: number,
     canvasHeight: number,
-    conveyorTip?: { x: number; y: number; dropX: number; dropY: number }
+    conveyorTip?: { x: number; y: number; dropX: number; dropY: number; safeAisleX?: number; conveyorW?: number }
   ) {
     this.dockPositions = docks;
     this.gridBounds.cellPixelSize = cellPixelSize;
@@ -154,7 +156,16 @@ export class ContinuousGameEngine {
     this.canvasHeight = canvasHeight;
 
     if (conveyorTip) {
-      this.conveyorTip = conveyorTip;
+      const cW = conveyorTip.conveyorW ?? 46;
+      const safeAisle = conveyorTip.safeAisleX ?? Math.round(conveyorTip.dropX - cW / 2 - 14);
+      this.conveyorTip = {
+        x: conveyorTip.x,
+        y: conveyorTip.y,
+        dropX: conveyorTip.dropX,
+        dropY: conveyorTip.dropY,
+        safeAisleX: safeAisle,
+        conveyorW: cW,
+      };
     } else {
       const topWallH = Math.min(48, Math.max(32, Math.floor(canvasHeight * 0.08)));
       const dockConsoleH = Math.min(76, Math.max(54, Math.floor(canvasHeight * 0.125)));
@@ -163,11 +174,14 @@ export class ContinuousGameEngine {
       const tipX = canvasWidth - conveyorW / 2 - 2;
       const tipY = topWallH + conveyorH;
       const botRadius = Math.max(9.5, Math.min(23, cellPixelSize * 0.60));
+      const safeAisle = Math.round(canvasWidth - conveyorW - botRadius - 6);
       this.conveyorTip = {
         x: tipX,
         y: tipY,
         dropX: tipX,
-        dropY: tipY + botRadius + 4,
+        dropY: Math.round(tipY + botRadius * 1.5 + 8),
+        safeAisleX: safeAisle,
+        conveyorW: conveyorW,
       };
     }
 
@@ -176,16 +190,29 @@ export class ContinuousGameEngine {
   }
 
   /**
-   * Retorna a coordenada mundial do slot k da fila de espera da esteira
-   * Os robôs se enfileiram verticalmente abaixo da ponta da esteira
+   * Retorna a coordenada mundial do slot k da fila de espera da esteira.
+   * Os robôs se enfileiram verticalmente abaixo da ponta da esteira,
+   * com espaçamento físico generoso para nunca se encavalarem ou subirem na esteira.
    */
   public getQueueSlotWorld(queueIndex: number): { x: number; y: number } {
     const botRadius = Math.max(9.5, Math.min(23, this.gridBounds.cellPixelSize * 0.60));
-    const queueSpacing = Math.round(botRadius * 1.5 + 4);
-    return {
-      x: this.conveyorTip.dropX,
-      y: this.conveyorTip.dropY + queueIndex * queueSpacing,
-    };
+    // Espaçamento generoso entre centros para garantir gap visível de 10-14px
+    const queueSpacing = Math.round(botRadius * 2.2 + 8);
+    const maxVertical = 4;
+
+    if (queueIndex <= maxVertical) {
+      return {
+        x: this.conveyorTip.dropX,
+        y: this.conveyorTip.dropY + queueIndex * queueSpacing,
+      };
+    } else {
+      // Se acumular mais de 5 robôs na fila, contorna em L para a esquerda no corredor inferior
+      const extra = queueIndex - maxVertical;
+      return {
+        x: Math.max(20, this.conveyorTip.dropX - extra * queueSpacing),
+        y: this.conveyorTip.dropY + maxVertical * queueSpacing,
+      };
+    }
   }
 
   /**
@@ -401,21 +428,21 @@ export class ContinuousGameEngine {
             const dy = wp.y - bot.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
 
-            // Ajusta o ângulo estritamente em eixos ortogonais (90 graus)
+            // Ajusta o ângulo e movimento estritamente em eixos ortogonais (Manhattan)
             if (Math.abs(dx) > Math.abs(dy)) {
               bot.angle = dx > 0 ? 0 : Math.PI;
+              const step = Math.min(Math.abs(dx), bot.speed * dt);
+              bot.x += Math.sign(dx) * step;
             } else if (Math.abs(dy) > 0.001) {
               bot.angle = dy > 0 ? Math.PI / 2 : -Math.PI / 2;
+              const step = Math.min(Math.abs(dy), bot.speed * dt);
+              bot.y += Math.sign(dy) * step;
             }
 
-            const step = bot.speed * dt;
-            if (dist <= step || dist < 2) {
+            if (dist < 2 || (Math.abs(wp.x - bot.x) < 1.5 && Math.abs(wp.y - bot.y) < 1.5)) {
               bot.x = wp.x;
               bot.y = wp.y;
               bot.waypointIndex++;
-            } else {
-              bot.x += (dx / dist) * step;
-              bot.y += (dy / dist) * step;
             }
           } else {
             // Chegou à face livre do bloco! Inicia coleta
@@ -451,7 +478,7 @@ export class ContinuousGameEngine {
               const targetSlot = this.getQueueSlotWorld(queueIndex);
 
               // 4. Calcula rota estritamente ortogonal (Manhattan) até o slot da fila:
-              // - BFS ortogonal do bloco até a borda direita/saída do grid
+              // - BFS ortogonal do bloco até a borda lateral direita (x = width)
               const exitPath = Pathfinder.findPathToSideExit(
                 bot.currentGridX,
                 bot.currentGridY,
@@ -466,12 +493,19 @@ export class ContinuousGameEngine {
                 ? gridWorldPoints[gridWorldPoints.length - 1]
                 : targetWorld;
 
-              // Rota Manhattan sem diagonais:
-              // Primeiro alinha em X até o corredor da esteira (targetSlot.x),
-              // depois alinha em Y até a posição da fila (targetSlot.y)
+              // Rota Manhattan estritamente ortogonal e segura contra a esteira:
+              // 1. Segue o grid até o corredor lateral direito (lastGridPoint.x, lastGridPoint.y)
+              // 2. Alinha horizontalmente até o corredor seguro à esquerda da esteira (safeAisleX)
+              // 3. Desce verticalmente pelo safeAisleX até a altura do slot da fila (targetSlot.y)
+              // 4. Alinha horizontalmente para a direita até o slot da fila (targetSlot.x)
+              const safeAisleX = this.conveyorTip.safeAisleX;
               const worldWaypoints = [...gridWorldPoints];
-              if (Math.abs(lastGridPoint.x - targetSlot.x) > 1) {
-                worldWaypoints.push({ x: targetSlot.x, y: lastGridPoint.y });
+
+              if (Math.abs(lastGridPoint.x - safeAisleX) > 1) {
+                worldWaypoints.push({ x: safeAisleX, y: lastGridPoint.y });
+              }
+              if (Math.abs(lastGridPoint.y - targetSlot.y) > 1) {
+                worldWaypoints.push({ x: safeAisleX, y: targetSlot.y });
               }
               worldWaypoints.push({ x: targetSlot.x, y: targetSlot.y });
 
@@ -496,21 +530,21 @@ export class ContinuousGameEngine {
             const dy = wp.y - bot.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
 
-            // Ajusta o ângulo estritamente em eixos ortogonais (90 graus)
+            // Ajusta o ângulo e movimento estritamente em eixos ortogonais (Manhattan)
             if (Math.abs(dx) > Math.abs(dy)) {
               bot.angle = dx > 0 ? 0 : Math.PI;
+              const step = Math.min(Math.abs(dx), bot.speed * dt);
+              bot.x += Math.sign(dx) * step;
             } else if (Math.abs(dy) > 0.001) {
               bot.angle = dy > 0 ? Math.PI / 2 : -Math.PI / 2;
+              const step = Math.min(Math.abs(dy), bot.speed * dt);
+              bot.y += Math.sign(dy) * step;
             }
 
-            const step = bot.speed * dt;
-            if (dist <= step || dist < 2) {
+            if (dist < 2 || (Math.abs(wp.x - bot.x) < 1.5 && Math.abs(wp.y - bot.y) < 1.5)) {
               bot.x = wp.x;
               bot.y = wp.y;
               bot.waypointIndex++;
-            } else {
-              bot.x += (dx / dist) * step;
-              bot.y += (dy / dist) * step;
             }
           } else {
             // Chegou ao seu slot na fila!
@@ -548,15 +582,30 @@ export class ContinuousGameEngine {
               this.conveyorQueue.shift();
             }
 
-            // Atualiza todos os robôs restantes na fila para avançarem um slot para a direita
+            // Atualiza todos os robôs restantes na fila para avançarem de slot ordenadamente
             for (let q = 0; q < this.conveyorQueue.length; q++) {
               const qBotId = this.conveyorQueue[q];
               const qBot = this.robots.find((r) => r.id === qBotId);
               if (qBot) {
                 qBot.queueIndex = q;
                 const nextSlot = this.getQueueSlotWorld(q);
-                qBot.waypoints = [{ x: nextSlot.x, y: nextSlot.y }];
-                qBot.waypointIndex = 0;
+
+                if (qBot.waypointIndex >= qBot.waypoints.length) {
+                  // O robô já estava esperando parado na fila: dá um passo ortogonal à frente
+                  qBot.waypoints = [{ x: nextSlot.x, y: nextSlot.y }];
+                  qBot.waypointIndex = 0;
+                } else {
+                  // O robô ainda está em trânsito vindo da matriz/corredor:
+                  // Atualiza apenas os waypoints finais do slot sem descartar a rota em andamento (evita drift diagonal!)
+                  const wpLen = qBot.waypoints.length;
+                  if (wpLen >= 2) {
+                    qBot.waypoints[wpLen - 2].y = nextSlot.y;
+                    qBot.waypoints[wpLen - 1].x = nextSlot.x;
+                    qBot.waypoints[wpLen - 1].y = nextSlot.y;
+                  } else if (wpLen === 1) {
+                    qBot.waypoints[0] = { x: nextSlot.x, y: nextSlot.y };
+                  }
+                }
               }
             }
 
@@ -572,7 +621,7 @@ export class ContinuousGameEngine {
           bot.x += bot.speed * dt;
 
           // Só desaparece quando sair completamente pela lateral direita
-          if (bot.x >= this.canvasWidth + 24) {
+          if (bot.x >= this.canvasWidth + 28) {
             this.robots.splice(i, 1);
           }
           break;
